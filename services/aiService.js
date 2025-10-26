@@ -113,19 +113,34 @@ Your rewrite should:
 4. Be specific, personalized, and action-oriented
 5. Optimize for clarity and brevity (70-95 words for body)
 6. Use conversational, authentic tone
+7. Ensure proper paragraph spacing with double line breaks between paragraphs
 
 Respond ONLY with valid JSON in this exact structure:
 {
     "improvedSubject": "<improved subject line>",
-    "improvedBody": "<improved email body>",
+    "improvedBody": "<improved email body with \\n\\n between paragraphs>",
     "changes": [
         {
             "category": "<what was changed>",
             "reason": "<why this change improves the copy>"
         }
     ],
+    "furtherTips": [
+        "<specific tip for further personalization>",
+        "<tip about using real research/data>",
+        "<tip about advanced tactics from best practices>",
+        "<3-6 total actionable tips>"
+    ],
     "expectedImpact": "<brief summary of how this should perform better>"
-}`;
+}
+
+IMPORTANT for furtherTips: Focus on ultra-specific personalization tactics like:
+- Using LinkedIn posts, company news, recent achievements for deep personalization
+- Adding specific case study names or companies for stronger social proof
+- Personalizing based on company longevity, growth stage, or tech stack
+- Including "give an out" lines to reduce pressure
+- Testing cheeky sign-offs for memorability
+- Reference specific triggers like job changes, funding, product launches`;
     }
 
     buildImproveUserPrompt(subjectLine, emailCopy, review) {
@@ -180,6 +195,12 @@ Generate an improved version that addresses the feedback and follows best perfor
         if (!response.improvedSubject || !response.improvedBody) {
             throw new Error('Invalid improve response structure');
         }
+
+        // Ensure furtherTips exists
+        if (!response.furtherTips || !Array.isArray(response.furtherTips)) {
+            response.furtherTips = [];
+        }
+
         return response;
     }
 

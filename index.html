@@ -53,8 +53,8 @@
                 </div>
 
                 <div class="button-group">
-                    <button id="reviewBtn" class="btn btn-primary">
-                        <span class="btn-text">Review Copy</span>
+                    <button id="analyzeBtn" class="btn btn-primary">
+                        <span class="btn-text">Improve My Copy</span>
                         <span class="btn-loader" style="display: none;">
                             <svg class="spinner" viewBox="0 0 50 50">
                                 <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
@@ -66,30 +66,43 @@
             </div>
 
             <div id="resultsSection" class="results-section" style="display: none;">
-                <div class="results-header">
-                    <h2 class="results-title">Review Results</h2>
-                    <div class="results-actions">
-                        <div id="overallScore" class="overall-score"></div>
-                        <button id="improveBtn" class="btn btn-improve" style="display: none;">
-                            <span class="btn-text">Generate Improved Copy</span>
-                            <span class="btn-loader" style="display: none;">
-                                <svg class="spinner" viewBox="0 0 50 50">
-                                    <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
-                                </svg>
-                            </span>
-                        </button>
+                <div class="score-header">
+                    <div class="score-badge">
+                        <span class="score-label">Your Copy Score</span>
+                        <span id="originalScore" class="score-number">0</span>
                     </div>
                 </div>
 
-                <div id="reviewContent" class="review-content collapsible-content collapsed">
-                    <!-- Results will be inserted here -->
-                </div>
-            </div>
+                <div class="improved-copy-section">
+                    <div class="section-header">
+                        <h3 class="section-title">Optimized Copy</h3>
+                    </div>
 
-            <div id="improvedSection" class="improved-section" style="display: none;">
-                <h2 class="improved-title">Improved Copy</h2>
-                <div id="improvedContent" class="improved-content">
-                    <!-- Improved copy will be inserted here -->
+                    <div class="copy-container">
+                        <div class="copy-field">
+                            <label class="field-label">Subject Line</label>
+                            <div id="improvedSubject" class="copy-display"></div>
+                        </div>
+
+                        <div class="copy-field">
+                            <label class="field-label">Email Body</label>
+                            <div id="improvedBody" class="copy-display body-display"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="improvements-section">
+                    <h3 class="improvements-title">Key Improvements</h3>
+                    <ul id="changesList" class="improvements-list">
+                        <!-- Changes will be inserted here -->
+                    </ul>
+                </div>
+
+                <div class="further-improvements-section">
+                    <h3 class="improvements-title">How to Improve Further</h3>
+                    <ul id="furtherTipsList" class="improvements-list">
+                        <!-- Further improvement tips will be inserted here -->
+                    </ul>
                 </div>
             </div>
 

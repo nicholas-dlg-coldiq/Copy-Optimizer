@@ -1,249 +1,267 @@
 # Cold Email Copy Reviewer
 
-An AI-powered tool that reviews cold email copy and provides actionable feedback based on proven best practices and high-performing email patterns.
+An AI-powered tool that analyzes and optimizes cold email copy using proven best practices from ColdIQ's messaging frameworks and cold email playbooks.
 
 ## Features
 
-- **AI-Powered Analysis**: Uses Claude (or OpenAI) to analyze your cold email copy
-- **Best Practice Comparison**: Compares your copy against proven high-performing patterns
-- **Detailed Feedback**: Get specific, actionable recommendations across multiple dimensions:
-  - Subject line effectiveness
-  - Opening hook strength
-  - Value proposition clarity
-  - Personalization quality
-  - Call-to-action optimization
-  - Length and structure
-- **Overall Score**: Receive a score out of 100 with color-coded rating
-- **Embeddable**: Clean, minimal UI that can be embedded in other pages
-- **Demo Mode**: Test the UI without backend setup
+- **Instant Copy Analysis**: Get a score for your original cold email copy
+- **AI-Powered Optimization**: Receive an improved version of your email with proper structure and personalization
+- **Key Improvements**: See exactly what changed and why
+- **Actionable Tips**: Get personalized recommendations for further improvement based on best practices
+- **Demo Mode**: Test the tool without API calls using sample data
+- **Single-Action Flow**: One click to analyze and improve your copy
+- **Clean UI**: Modern, responsive design that works on all devices
 
 ## Tech Stack
 
-### Frontend
-- Vanilla JavaScript (no frameworks required)
-- Modern CSS with CSS variables
-- Responsive design
+- **Backend**: Node.js + Express
+- **AI**: Anthropic Claude API (Claude 3.5 Sonnet)
+- **Frontend**: Vanilla JavaScript, HTML, CSS
+- **Data**: Curated best practices from ColdIQ playbooks
 
-### Backend
-- Node.js
-- Express.js
-- Anthropic Claude API (or OpenAI)
+## Getting Started
 
-## Quick Start
+### Prerequisites
 
-### 1. Clone and Install
+- Node.js (v16 or higher)
+- npm or yarn
+- Anthropic API key ([Get one here](https://console.anthropic.com/))
 
-```bash
-cd Copy-reviewer
-npm install
-```
+### Installation
 
-### 2. Configure Environment
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-org/copy-reviewer.git
+   cd copy-reviewer
+   ```
 
-Copy the example environment file and add your API keys:
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-```bash
-cp .env.example .env
-```
+3. **Set up environment variables**
 
-Edit `.env` and add your API key:
+   Create a `.env` file in the root directory:
+   ```bash
+   cp .env.example .env
+   ```
 
-```env
-ANTHROPIC_API_KEY=your_claude_api_key_here
-AI_PROVIDER=claude
-PORT=3000
-```
+   Or create it manually with the following content:
+   ```env
+   # Required: Your Anthropic API key
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
-### 3. Run the Server
+   # Optional: AI provider (default: claude)
+   AI_PROVIDER=claude
 
-```bash
-npm start
-```
+   # Optional: Server port (default: 3000)
+   PORT=3000
+   ```
 
-Or for development with auto-reload:
+4. **Add your Anthropic API Key**
 
-```bash
-npm run dev
-```
+   Open `.env` and replace `your_anthropic_api_key_here` with your actual API key:
+   ```env
+   ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxxx
+   ```
 
-### 4. Open in Browser
+   > **Where to get your API key:**
+   > 1. Go to [https://console.anthropic.com/](https://console.anthropic.com/)
+   > 2. Sign up or log in
+   > 3. Navigate to API Keys section
+   > 4. Create a new API key
+   > 5. Copy and paste it into your `.env` file
 
-Navigate to `http://localhost:3000`
+5. **Start the server**
+   ```bash
+   npm start
+   ```
+
+   For development with auto-reload:
+   ```bash
+   npm run dev
+   ```
+
+6. **Open the app**
+
+   Navigate to [http://localhost:3000](http://localhost:3000) in your browser
+
+## Usage
+
+### Demo Mode
+1. Make sure "Demo Mode" toggle is ON (enabled by default)
+2. Paste any cold email copy into the subject and body fields
+3. Click "Improve My Copy"
+4. See instant results without using API credits
+
+### API Mode (Real AI Analysis)
+1. Toggle OFF "Demo Mode"
+2. Make sure your `ANTHROPIC_API_KEY` is set in `.env`
+3. Paste your cold email copy
+4. Click "Improve My Copy"
+5. Claude will analyze and optimize your copy in real-time
+
+### What You'll Get
+
+1. **Your Copy Score**: A rating of your original email (0-100)
+2. **Optimized Copy**: Improved version with:
+   - Better subject line
+   - Restructured email body with proper paragraphs
+   - Enhanced personalization and value proposition
+3. **Key Improvements**: Detailed breakdown of what changed and why
+4. **How to Improve Further**: Actionable tips for even better personalization
 
 ## Project Structure
 
 ```
-Copy-reviewer/
-├── index.html              # Main UI
-├── styles.css              # Styling
-├── script.js               # Frontend logic
-├── server.js               # Express server
-├── package.json            # Dependencies
-├── .env.example            # Environment template
+copy-reviewer/
+├── server.js                 # Express server setup
 ├── routes/
-│   └── review.js           # API routes
+│   └── review.js            # API endpoints
 ├── services/
-│   └── aiService.js        # AI integration service
-└── data/
-    └── bestPerformingCopies.js  # Best performing patterns database
+│   └── aiService.js         # Claude API integration
+├── data/
+│   ├── bestPractices.js     # Cold email best practices
+│   └── bestPerformingCopies.js  # Example high-performing emails
+├── public/
+│   ├── index.html           # Main UI
+│   ├── script.js            # Frontend logic
+│   └── styles.css           # Styling
+├── .env                     # Environment variables (you create this)
+├── .env.example             # Example env file
+└── package.json             # Dependencies
 ```
 
-## Configuration
+## API Endpoints
 
-### AI Provider
+### `POST /api/analyze-and-improve`
 
-You can switch between Claude and OpenAI by changing the `AI_PROVIDER` in `.env`:
+Analyzes and improves cold email copy in a single call.
 
-```env
-AI_PROVIDER=claude  # or 'openai'
-```
-
-Note: OpenAI integration is currently a placeholder. To implement it, update the `reviewWithOpenAI` method in [services/aiService.js](services/aiService.js).
-
-### Demo Mode
-
-The frontend includes a demo mode for testing without a backend. To disable it:
-
-1. Open [script.js](script.js)
-2. Find the `useDemoMode()` function
-3. Change `return true` to `return false`
-
-### Customizing Best Performing Patterns
-
-Update your best-performing email patterns in [data/bestPerformingCopies.js](data/bestPerformingCopies.js):
-
-```javascript
-{
-    id: 4,
-    category: 'Your Category',
-    responseRate: 50,
-    characteristics: {
-        subjectLength: 40,
-        emailLength: 85,
-        personalizationPoints: 3,
-        hasDataPoint: true,
-        hasSocialProof: true,
-        ctaType: 'low-commitment',
-        tone: 'conversational'
-    },
-    patterns: [
-        'Pattern 1',
-        'Pattern 2',
-        // ...
-    ]
-}
-```
-
-## API Documentation
-
-### POST /api/review-copy
-
-Reviews cold email copy and returns structured feedback.
-
-**Request Body:**
+**Request:**
 ```json
 {
-    "copy": "Your cold email text here..."
+  "subjectLine": "Your subject line",
+  "copy": "Your email body"
 }
 ```
 
 **Response:**
 ```json
 {
-    "overallScore": 75,
-    "sections": [
-        {
-            "title": "Section Name",
-            "content": "Main feedback",
-            "items": ["Point 1", "Point 2"],
-            "highlight": {
-                "title": "Key Improvement",
-                "content": "Specific suggestion"
-            }
-        }
-    ]
+  "original": {
+    "subjectLine": "...",
+    "copy": "..."
+  },
+  "review": {
+    "score": 73,
+    "originalScore": 73
+  },
+  "improved": {
+    "subjectLine": "...",
+    "copy": "..."
+  },
+  "changes": [
+    {
+      "category": "Subject Line",
+      "reason": "Shortened and added personalization"
+    }
+  ],
+  "furtherTips": [
+    "Replace placeholders with actual research",
+    "Add specific metrics for credibility"
+  ]
 }
 ```
 
-**Status Codes:**
-- `200`: Success
-- `400`: Invalid request (missing or empty copy)
-- `500`: Server error
+### `POST /api/review-copy` (Legacy)
 
-## Embedding
+Just reviews the copy without generating improvements.
 
-To embed this tool in another page, you can:
+### `POST /api/improve` (Legacy)
 
-1. **iFrame approach:**
-```html
-<iframe src="http://localhost:3000" width="100%" height="800px"></iframe>
+Generates improved copy based on review feedback.
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | - | Your Anthropic API key |
+| `AI_PROVIDER` | No | `claude` | AI provider (currently only supports `claude`) |
+| `PORT` | No | `3000` | Server port |
+
+### Customizing Best Practices
+
+You can customize the AI's knowledge by editing:
+
+- `data/bestPractices.js` - Add your own cold email frameworks and tactics
+- `data/bestPerformingCopies.js` - Add examples of your best-performing emails
+
+The AI will use these as context when analyzing and improving copy.
+
+## Development
+
+### Running in Development Mode
+
+```bash
+npm run dev
 ```
 
-2. **Direct integration:**
-   - Copy the HTML structure from [index.html](index.html)
-   - Include [styles.css](styles.css)
-   - Include [script.js](script.js)
-   - Ensure the API endpoint is accessible
+This uses `nodemon` to automatically restart the server when files change.
 
-## Customization
+### Testing Without API Calls
 
-### Styling
+Keep "Demo Mode" enabled to test the UI and flow without consuming API credits.
 
-All colors and styles use CSS variables defined in [styles.css](styles.css). Customize by modifying the `:root` section:
+## Contributing
 
-```css
-:root {
-    --primary-color: #2563eb;
-    --primary-hover: #1d4ed8;
-    /* ... */
-}
-```
-
-### AI Prompt
-
-Customize the AI's review style by editing the prompts in [services/aiService.js](services/aiService.js):
-
-- `buildSystemPrompt()`: Defines the AI's role and output format
-- `buildUserPrompt()`: Formats the user's copy for review
-
-## Getting API Keys
-
-### Claude (Anthropic)
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Create an account or sign in
-3. Navigate to API Keys
-4. Create a new API key
-5. Copy the key to your `.env` file
-
-### OpenAI (Optional)
-1. Go to [platform.openai.com](https://platform.openai.com)
-2. Create an account or sign in
-3. Navigate to API Keys
-4. Create a new API key
-5. Copy the key to your `.env` file
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## Troubleshooting
 
-### "Module not found" errors
-Run `npm install` to ensure all dependencies are installed.
+### "API Error: 401 Unauthorized"
+- Check that your `ANTHROPIC_API_KEY` is correctly set in `.env`
+- Verify the API key is valid and has available credits
 
-### API key errors
-- Verify your API key is correctly set in `.env`
-- Ensure `.env` is in the root directory
-- Restart the server after changing `.env`
+### "Port 3000 already in use"
+- Change the `PORT` in `.env` to a different port (e.g., `3001`)
+- Or kill the process using port 3000
 
-### CORS errors
-If embedding in another domain, update CORS settings in [server.js](server.js):
-```javascript
-app.use(cors({
-    origin: 'https://your-domain.com'
-}));
-```
+### "Failed to parse improved copy response"
+- This is usually a temporary API issue
+- Try again or check your API key limits
+
+### Changes not reflecting
+- Make sure you restart the server after changing `.env`
+- Hard refresh the browser (Ctrl+Shift+R or Cmd+Shift+R)
+
+## Built With
+
+- [Express](https://expressjs.com/) - Web framework
+- [Anthropic Claude](https://www.anthropic.com/claude) - AI model
+- [dotenv](https://github.com/motdotla/dotenv) - Environment variable management
 
 ## License
 
 MIT
 
+## Acknowledgments
+
+- ColdIQ for the cold email frameworks and best practices
+- Cold Email Outreach Playbook for proven tactics and templates
+- All the sales and copywriting experts whose wisdom is embedded in this tool
+
 ## Support
 
-For issues or questions, please refer to the code comments or create an issue in the repository.
+For issues, questions, or contributions, please open an issue on GitHub.
+
+---
+
+**Made with ❤️ by ColdIQ**

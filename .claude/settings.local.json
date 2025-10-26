@@ -11,7 +11,11 @@
       "Bash(taskkill //F //PID 22556)",
       "Bash(taskkill //F //PID 12128)",
       "Bash(netstat:*)",
-      "Bash(taskkill //F //PID 85368)"
+      "Bash(taskkill //F //PID 85368)",
+      "Bash(taskkill //F //PID 18032)",
+      "Bash(taskkill //F //PID 87020)",
+      "Bash(taskkill //F //PID 35144)",
+      "Bash(taskkill //F //PID 45748)"
     ],
     "deny": [],
     "ask": []
