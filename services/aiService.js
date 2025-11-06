@@ -8,11 +8,18 @@ class AIService {
     constructor() {
         this.provider = process.env.AI_PROVIDER || 'claude';
 
+        // Initialize Claude if using it
         if (this.provider === 'claude') {
             this.anthropic = new Anthropic({
                 apiKey: process.env.ANTHROPIC_API_KEY,
                 timeout: 60000 // 60 seconds timeout
             });
+        }
+
+        // Always initialize OpenRouter if key is available (for auto-detection)
+        if (process.env.OPENROUTER_API_KEY) {
+            this.openRouterApiKey = process.env.OPENROUTER_API_KEY;
+            this.openRouterUrl = 'https://openrouter.ai/api/v1/chat/completions';
         }
 
         // Create logs directory if it doesn't exist
@@ -270,7 +277,13 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
     }
 
     async reviewCopy(subjectLine, emailCopy, model) {
-        if (this.provider === 'claude') {
+        // Auto-detect provider based on model name format
+        // If model has "/" it's an OpenRouter model (e.g., "anthropic/claude-3.5-sonnet", "openai/gpt-4o")
+        const useOpenRouter = model && model.includes('/');
+
+        if (useOpenRouter || this.provider === 'openrouter') {
+            return await this.reviewWithOpenRouter(subjectLine, emailCopy, model);
+        } else if (this.provider === 'claude') {
             return await this.reviewWithClaude(subjectLine, emailCopy, model);
         } else if (this.provider === 'openai') {
             return await this.reviewWithOpenAI(subjectLine, emailCopy);
@@ -370,6 +383,96 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         }
     }
 
+    async reviewWithOpenRouter(subjectLine, emailCopy, model = 'anthropic/claude-sonnet-4-5:beta') {
+        const systemPrompt = this.buildSystemPrompt();
+        const userPrompt = this.buildUserPrompt(subjectLine, emailCopy);
+
+        console.log('=== Starting OpenRouter API Request (Review) ===');
+        console.log('Model:', model);
+        console.log('Subject Line Length:', subjectLine.length);
+        console.log('Email Copy Length:', emailCopy.length);
+        console.log('System Prompt Length:', systemPrompt.length);
+        console.log('User Prompt Length:', userPrompt.length);
+        console.log('Request started at:', new Date().toISOString());
+
+        try {
+            const startTime = Date.now();
+            const response = await fetch(this.openRouterUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.openRouterApiKey}`,
+                    'HTTP-Referer': 'https://coldiq.com',
+                    'X-Title': 'ColdIQ Email Optimizer',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: systemPrompt
+                        },
+                        {
+                            role: 'user',
+                            content: userPrompt
+                        },
+                        {
+                            role: 'assistant',
+                            content: '{\n    "overallScore":' // Prefill to enforce JSON structure
+                        }
+                    ],
+                    max_tokens: 3000,
+                    temperature: 0.7
+                })
+            });
+            const duration = Date.now() - startTime;
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+            }
+
+            const data = await response.json();
+
+            console.log('=== OpenRouter API Response Received ===');
+            console.log('Response time:', duration + 'ms');
+            console.log('Response completed at:', new Date().toISOString());
+
+            const responseText = data.choices[0].message.content;
+            console.log('Response content length:', responseText.length);
+
+            const parsedResponse = this.parseAIResponse(responseText);
+
+            // Log the prompt and response
+            this.logPromptAndResponse('review', {
+                systemPrompt,
+                userPrompt,
+                response: responseText,
+                parsedResponse,
+                model,
+                responseTime: duration,
+                stopReason: data.choices[0].finish_reason || 'stop',
+                contentLength: responseText.length
+            });
+
+            return parsedResponse;
+        } catch (error) {
+            console.error('=== OpenRouter API Error ===');
+            console.error('Error occurred at:', new Date().toISOString());
+            console.error('Error type:', error.constructor.name);
+            console.error('Error message:', error.message);
+
+            if (error.message && error.message.includes('timeout')) {
+                throw new Error(`Request timed out. The API may be slow or unavailable. Please try again.`);
+            } else if (error.message && error.message.includes('401')) {
+                throw new Error('Invalid or expired OpenRouter API key. Please update OPENROUTER_API_KEY in your .env file.');
+            } else if (error.message && error.message.includes('429')) {
+                throw new Error('Rate limit exceeded. Please try again later.');
+            }
+            throw new Error(`Failed to get review from OpenRouter API: ${error.message}`);
+        }
+    }
+
     async reviewWithOpenAI(subjectLine, emailCopy) {
         // Placeholder for OpenAI implementation
         // You can implement this similarly to Claude when needed
@@ -377,7 +480,13 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
     }
 
     async improveCopy(subjectLine, emailCopy, review, model) {
-        if (this.provider === 'claude') {
+        // Auto-detect provider based on model name format
+        // If model has "/" it's an OpenRouter model (e.g., "anthropic/claude-3.5-sonnet", "openai/gpt-4o")
+        const useOpenRouter = model && model.includes('/');
+
+        if (useOpenRouter || this.provider === 'openrouter') {
+            return await this.improveWithOpenRouter(subjectLine, emailCopy, review, model);
+        } else if (this.provider === 'claude') {
             return await this.improveWithClaude(subjectLine, emailCopy, review, model);
         } else if (this.provider === 'openai') {
             return await this.improveWithOpenAI(subjectLine, emailCopy, review);
@@ -475,6 +584,97 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
                 throw new Error('Claude API is temporarily overloaded. Please wait a moment and try again.');
             }
             throw new Error(`Failed to generate improved copy from Claude API: ${error.message} (Status: ${error.status}, Code: ${error.code})`);
+        }
+    }
+
+    async improveWithOpenRouter(subjectLine, emailCopy, review, model = 'anthropic/claude-sonnet-4-5:beta') {
+        const systemPrompt = this.buildImproveSystemPrompt();
+        const userPrompt = this.buildImproveUserPrompt(subjectLine, emailCopy, review);
+
+        console.log('=== Starting OpenRouter API Request (Improve) ===');
+        console.log('Model:', model);
+        console.log('Subject Line Length:', subjectLine.length);
+        console.log('Email Copy Length:', emailCopy.length);
+        console.log('System Prompt Length:', systemPrompt.length);
+        console.log('User Prompt Length:', userPrompt.length);
+        console.log('Request started at:', new Date().toISOString());
+
+        try {
+            const startTime = Date.now();
+            const response = await fetch(this.openRouterUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.openRouterApiKey}`,
+                    'HTTP-Referer': 'https://coldiq.com',
+                    'X-Title': 'ColdIQ Email Optimizer',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: systemPrompt
+                        },
+                        {
+                            role: 'user',
+                            content: userPrompt
+                        },
+                        {
+                            role: 'assistant',
+                            content: '{\n    "improvedSubject":"' // Prefill to enforce JSON structure
+                        }
+                    ],
+                    max_tokens: 3000,
+                    temperature: 0.8
+                })
+            });
+            const duration = Date.now() - startTime;
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+            }
+
+            const data = await response.json();
+
+            console.log('=== OpenRouter API Response Received ===');
+            console.log('Response time:', duration + 'ms');
+            console.log('Response completed at:', new Date().toISOString());
+
+            const responseText = data.choices[0].message.content;
+            console.log('Response content length:', responseText.length);
+
+            const parsedResponse = this.parseImproveResponse(responseText);
+
+            // Log the prompt and response
+            this.logPromptAndResponse('improve', {
+                systemPrompt,
+                userPrompt,
+                reviewData: review,
+                response: responseText,
+                parsedResponse,
+                model,
+                responseTime: duration,
+                stopReason: data.choices[0].finish_reason || 'stop',
+                contentLength: responseText.length
+            });
+
+            return parsedResponse;
+        } catch (error) {
+            console.error('=== OpenRouter API Error ===');
+            console.error('Error occurred at:', new Date().toISOString());
+            console.error('Error type:', error.constructor.name);
+            console.error('Error message:', error.message);
+
+            if (error.message && error.message.includes('timeout')) {
+                throw new Error(`Request timed out. The API may be slow or unavailable. Please try again.`);
+            } else if (error.message && error.message.includes('401')) {
+                throw new Error('Invalid or expired OpenRouter API key. Please update OPENROUTER_API_KEY in your .env file.');
+            } else if (error.message && error.message.includes('429')) {
+                throw new Error('Rate limit exceeded. Please try again later.');
+            }
+            throw new Error(`Failed to generate improved copy from OpenRouter API: ${error.message}`);
         }
     }
 

@@ -36,10 +36,25 @@
                         <div class="settings-group">
                             <label for="modelSelectModal" class="settings-label">AI Model</label>
                             <select id="modelSelectModal" class="settings-dropdown">
-                                <option value="claude-sonnet-4-5-20250929">Sonnet 4.5 (Recommended)</option>
-                                <option value="claude-haiku-4-5-20251001">Haiku 4.5 (Faster, Less Reliable)</option>
+                                <optgroup label="Anthropic (via OpenRouter)">
+                                    <option value="anthropic/claude-sonnet-4-5:beta" selected>Claude Sonnet 4.5 (Recommended)</option>
+                                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                                    <option value="anthropic/claude-3-haiku">Claude 3 Haiku (Faster)</option>
+                                </optgroup>
+                                <optgroup label="OpenAI">
+                                    <option value="openai/gpt-4o">GPT-4o</option>
+                                    <option value="openai/gpt-4o-mini">GPT-4o Mini (Faster)</option>
+                                    <option value="openai/gpt-4-turbo">GPT-4 Turbo</option>
+                                </optgroup>
+                                <optgroup label="Google">
+                                    <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (Free)</option>
+                                    <option value="google/gemini-pro-1.5">Gemini 1.5 Pro</option>
+                                </optgroup>
+                                <optgroup label="Meta">
+                                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                                </optgroup>
                             </select>
-                            <p class="settings-help">Sonnet recommended for reliable JSON. Haiku is 2-3x faster but may have parsing errors.</p>
+                            <p class="settings-help">Claude Sonnet 4.5 recommended for best results. Other models may vary in quality and cost.</p>
                         </div>
                         <div class="settings-group">
                             <label class="settings-label">Demo Mode</label>
@@ -58,7 +73,7 @@
                 <div class="input-group">
                     <div class="label-with-counter">
                         <label for="subjectLine" class="label">Subject Line <span class="required">*</span></label>
-                        <span id="subjectCounter" class="counter">0/7 words (optimal: 4-7)</span>
+                        <span id="subjectCounter" class="counter">0 words</span>
                     </div>
                     <input
                         type="text"
@@ -72,7 +87,7 @@
                 <div class="input-group">
                     <div class="label-with-counter">
                         <label for="emailCopy" class="label">Email Body <span class="required">*</span></label>
-                        <span id="bodyCounter" class="counter">0/85 words (optimal: 70-95)</span>
+                        <span id="bodyCounter" class="counter">0 words</span>
                     </div>
                     <textarea
                         id="emailCopy"
@@ -83,6 +98,19 @@
                     ></textarea>
                 </div>
 
+                <div class="input-group">
+                    <label for="emailAddress" class="label">Your email address <span class="required">*</span></label>
+                    <input
+                        type="email"
+                        id="emailAddress"
+                        class="input"
+                        placeholder="your.email@company.com"
+                        required
+                    />
+                    <p class="help-text">Please enter a professional email address</p>
+                    <p id="emailError" class="help-text error-text" style="display: none;"></p>
+                </div>
+
                 <div class="button-group">
                     <button id="analyzeBtn" class="btn btn-primary" disabled>
                         <span class="btn-text">Improve My Copy</span>
@@ -90,7 +118,7 @@
                             <svg class="spinner" viewBox="0 0 50 50">
                                 <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
                             </svg>
-                            <span class="loading-text">Analyzing... (5-10 sec)</span>
+                            <span class="loading-text">Analyzing... (20-30 secs)</span>
                         </span>
                     </button>
                     <button id="clearBtn" class="btn btn-link">Clear</button>

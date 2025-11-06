@@ -184,6 +184,19 @@ body {
     font-weight: 500;
 }
 
+.help-text {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+    line-height: 1.4;
+}
+
+.help-text.error-text {
+    color: var(--danger-color);
+    margin-top: 0.25rem;
+}
+
 .input {
     width: 100%;
     padding: 0.875rem 1rem;
@@ -194,6 +207,10 @@ body {
     border: 1px solid var(--border);
     border-radius: 12px;
     transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.input.error {
+    border-color: var(--danger-color);
 }
 
 .input:focus {

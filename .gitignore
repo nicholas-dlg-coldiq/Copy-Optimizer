@@ -22,3 +22,4 @@ Thumbs.db
 # Build outputs
 dist/
 build/
+.claude/settings.local.json

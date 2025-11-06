@@ -6,6 +6,8 @@ const API_CONFIG = {
 
 // DOM Elements
 const subjectLineInput = document.getElementById('subjectLine');
+const emailAddressInput = document.getElementById('emailAddress');
+const emailErrorText = document.getElementById('emailError');
 const emailCopyTextarea = document.getElementById('emailCopy');
 const subjectCounter = document.getElementById('subjectCounter');
 const bodyCounter = document.getElementById('bodyCounter');
@@ -44,6 +46,10 @@ trySampleBtn.addEventListener('click', handleTrySample);
 showOriginalBtn.addEventListener('click', toggleOriginalCopy);
 subjectLineInput.addEventListener('input', () => {
     updateSubjectCounter();
+    updateButtonState();
+});
+emailAddressInput.addEventListener('input', () => {
+    validateEmailAddress();
     updateButtonState();
 });
 emailCopyTextarea.addEventListener('input', () => {
@@ -105,24 +111,61 @@ function countWords(text) {
 
 function updateSubjectCounter() {
     const wordCount = countWords(subjectLineInput.value);
-    subjectCounter.textContent = `${wordCount}/7 words (optimal: 4-7)`;
+    subjectCounter.textContent = `${wordCount}/10 words`;
 }
 
 function updateBodyCounter() {
     const wordCount = countWords(emailCopyTextarea.value);
-    bodyCounter.textContent = `${wordCount}/85 words (optimal: 70-95)`;
+    bodyCounter.textContent = `${wordCount}/200 words`;
+}
+
+// Email Validation Function
+function validateEmailAddress() {
+    const email = emailAddressInput.value.trim();
+
+    // Clear previous error state
+    emailAddressInput.classList.remove('error');
+    emailErrorText.style.display = 'none';
+    emailErrorText.textContent = '';
+
+    // If empty, no validation needed yet
+    if (email.length === 0) {
+        return false;
+    }
+
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        emailAddressInput.classList.add('error');
+        emailErrorText.textContent = 'Please enter a valid email address';
+        emailErrorText.style.display = 'block';
+        return false;
+    }
+
+    // Check for @gmail.com
+    if (email.toLowerCase().includes('@gmail.com')) {
+        emailAddressInput.classList.add('error');
+        emailErrorText.textContent = 'Please use a professional email address (not @gmail.com)';
+        emailErrorText.style.display = 'block';
+        return false;
+    }
+
+    // Email is valid
+    return true;
 }
 
 // Button State Management
 function updateButtonState() {
     const hasSubject = subjectLineInput.value.trim().length > 0;
+    const hasValidEmail = emailAddressInput.value.trim().length > 0 && validateEmailAddress();
     const hasBody = emailCopyTextarea.value.trim().length > 0;
-    analyzeBtn.disabled = !(hasSubject && hasBody);
+    analyzeBtn.disabled = !(hasSubject && hasValidEmail && hasBody);
 }
 
 // Sample Email Handler
 function handleTrySample() {
     subjectLineInput.value = "I saw your post about growing your outbound team";
+    emailAddressInput.value = "alex@company.com";
     emailCopyTextarea.value = `Hey Sarah,
 
 I noticed you're hiring 3 new SDRs based on your LinkedIn post last week. Congrats on the growth!
@@ -136,6 +179,7 @@ Alex`;
 
     updateSubjectCounter();
     updateBodyCounter();
+    validateEmailAddress();
     updateButtonState();
 
     subjectLineInput.focus();
@@ -186,17 +230,29 @@ async function handleCopyClick(button) {
 // Handle Analyze Button Click
 async function handleAnalyzeClick() {
     const subjectLine = subjectLineInput.value.trim();
+    const emailAddress = emailAddressInput.value.trim();
     const copyText = emailCopyTextarea.value.trim();
 
-    // Validation - both fields required
-    if (!subjectLine && !copyText) {
-        showError('Please enter both a subject line and email body.');
+    // Validation - all fields required
+    if (!subjectLine && !emailAddress && !copyText) {
+        showError('Please enter all required fields: subject line, email address, and email body.');
         return;
     }
     if (!subjectLine) {
         showError('Please enter a subject line.');
         return;
     }
+    if (!emailAddress) {
+        showError('Please enter your email address.');
+        return;
+    }
+
+    // Validate email format and professional domain
+    if (!validateEmailAddress()) {
+        showError('Please enter a valid professional email address (not @gmail.com).');
+        return;
+    }
+
     if (!copyText) {
         showError('Please enter your email body.');
         return;
@@ -222,9 +278,17 @@ async function handleAnalyzeClick() {
 // Handle Clear Button Click
 function handleClearClick() {
     subjectLineInput.value = '';
+    emailAddressInput.value = '';
     emailCopyTextarea.value = '';
+
+    // Clear email validation errors
+    emailAddressInput.classList.remove('error');
+    emailErrorText.style.display = 'none';
+    emailErrorText.textContent = '';
+
     updateSubjectCounter();
     updateBodyCounter();
+    updateButtonState();
     hideResults();
     hideError();
     subjectLineInput.focus();

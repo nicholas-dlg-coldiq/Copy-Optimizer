@@ -33,4 +33,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`Copy Reviewer server running on http://localhost:${PORT}`);
     console.log(`AI Provider: ${process.env.AI_PROVIDER || 'claude'}`);
+    console.log(`OpenRouter API Key configured: ${process.env.OPENROUTER_API_KEY ? 'Yes' : 'No'}`);
 });
