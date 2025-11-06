@@ -1,7 +1,7 @@
 // API Configuration
 const API_CONFIG = {
     endpoint: '/api/analyze-and-improve',
-    timeout: 60000 // 60 seconds for combined operation
+    timeout: 120000 // 120 seconds (2 minutes) for combined operation - two sequential API calls
 };
 
 // DOM Elements
@@ -15,9 +15,15 @@ const trySampleBtn = document.getElementById('trySampleBtn');
 const resultsSection = document.getElementById('resultsSection');
 const errorSection = document.getElementById('errorSection');
 const errorMessage = document.getElementById('errorMessage');
-const demoModeToggle = document.getElementById('demoModeToggle');
 const showOriginalBtn = document.getElementById('showOriginalBtn');
 const originalCopySection = document.getElementById('originalCopySection');
+
+// Settings Modal Elements
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const demoModeToggleModal = document.getElementById('demoModeToggleModal');
+const modelSelectModal = document.getElementById('modelSelectModal');
 
 // Result section elements
 const originalScore = document.getElementById('originalScore');
@@ -45,6 +51,23 @@ emailCopyTextarea.addEventListener('input', () => {
     updateButtonState();
 });
 
+// Settings Modal Event Listeners
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', closeSettings);
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+        closeSettings();
+    }
+});
+
+// Sync settings between modal and main state
+demoModeToggleModal.addEventListener('change', () => {
+    // Settings are read from modal when making API calls
+});
+modelSelectModal.addEventListener('change', () => {
+    // Settings are read from modal when making API calls
+});
+
 // Copy buttons (delegated)
 document.addEventListener('click', (e) => {
     if (e.target.closest('.copy-btn')) {
@@ -55,6 +78,24 @@ document.addEventListener('click', (e) => {
 // Initialize counters on page load
 updateSubjectCounter();
 updateBodyCounter();
+
+// Settings Modal Functions
+function openSettings() {
+    settingsModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSettings() {
+    settingsModal.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && settingsModal.style.display === 'flex') {
+        closeSettings();
+    }
+});
 
 // Word Counter Functions
 function countWords(text) {
@@ -119,9 +160,9 @@ async function handleCopyClick(button) {
     let textToCopy = '';
 
     if (copyType === 'subject') {
-        textToCopy = improvedSubject.textContent;
+        textToCopy = cleanText(improvedSubject.textContent);
     } else if (copyType === 'body') {
-        textToCopy = improvedBody.textContent;
+        textToCopy = cleanText(improvedBody.textContent);
     }
 
     try {
@@ -191,10 +232,13 @@ function handleClearClick() {
 
 // Analyze and Improve - Combined API Call
 async function analyzeAndImprove(subjectLine, copyText) {
-    // Check if demo mode is enabled
-    if (demoModeToggle.checked) {
+    // Check if demo mode is enabled (from modal)
+    if (demoModeToggleModal.checked) {
         return getDemoResponse(subjectLine, copyText);
     }
+
+    // Get selected model (from modal)
+    const selectedModel = modelSelectModal.value;
 
     // Call backend API
     const response = await fetch(API_CONFIG.endpoint, {
@@ -204,7 +248,8 @@ async function analyzeAndImprove(subjectLine, copyText) {
         },
         body: JSON.stringify({
             subjectLine: subjectLine,
-            copy: copyText
+            copy: copyText,
+            model: selectedModel
         }),
         signal: AbortSignal.timeout(API_CONFIG.timeout)
     });
@@ -232,20 +277,20 @@ function displayResults(result) {
     scoreStatus.className = 'score-status-badge ' + scoreClass;
 
     // Display original copy (for comparison)
-    originalSubjectDisplay.textContent = result.original.subjectLine;
-    originalBodyDisplay.textContent = result.original.copy;
+    originalSubjectDisplay.textContent = cleanText(result.original.subjectLine);
+    originalBodyDisplay.textContent = cleanText(result.original.copy);
 
     // Reset original copy visibility
     originalCopyVisible = false;
     originalCopySection.style.display = 'none';
     showOriginalBtn.textContent = 'Show Original';
 
-    // Display improved copy
-    improvedSubject.textContent = result.improved.subjectLine;
+    // Display improved copy (clean em dashes)
+    improvedSubject.textContent = cleanText(result.improved.subjectLine);
 
-    // Display improved body with proper line breaks
+    // Display improved body with proper line breaks (clean em dashes)
     // The body already has \n characters, we just need to display them correctly
-    improvedBody.textContent = result.improved.copy;
+    improvedBody.textContent = cleanText(result.improved.copy);
 
     // Display changes in collapsible format
     changesList.innerHTML = '';
@@ -312,11 +357,18 @@ function displayResults(result) {
     resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-// Escape HTML to prevent XSS
+// Escape HTML to prevent XSS and replace em dashes
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    // Replace em dashes (—) with regular hyphens ( - )
+    return div.innerHTML.replace(/—/g, ' - ');
+}
+
+// Remove em dashes from plain text (for textContent)
+function cleanText(text) {
+    if (!text) return text;
+    return text.replace(/—/g, ' - ');
 }
 
 // Get Score Class for Styling
@@ -352,6 +404,56 @@ function toggleChangeDetail(headerElement) {
         changeItem.classList.add('expanded');
         expandIcon.style.transform = 'rotate(180deg)';
     }
+}
+
+// Get text excerpt for a specific change category
+function getTextExcerptForChange(category, emailData) {
+    if (!emailData) return '';
+
+    const categoryLower = category.toLowerCase();
+
+    // Subject Line changes
+    if (categoryLower.includes('subject')) {
+        return emailData.subjectLine || '';
+    }
+
+    // For body changes, try to extract relevant portion
+    const body = emailData.copy || '';
+
+    // Opening Hook - first sentence/paragraph
+    if (categoryLower.includes('opening') || categoryLower.includes('hook')) {
+        const firstParagraph = body.split('\n\n')[0];
+        return firstParagraph || '';
+    }
+
+    // Call to Action - usually last paragraph or sentence with question
+    if (categoryLower.includes('cta') || categoryLower.includes('call to action')) {
+        const paragraphs = body.split('\n\n');
+        // Get last paragraph (excluding signature)
+        for (let i = paragraphs.length - 1; i >= 0; i--) {
+            if (paragraphs[i].trim() && !paragraphs[i].includes('Best,') && !paragraphs[i].includes('[Your Name]')) {
+                return paragraphs[i];
+            }
+        }
+    }
+
+    // Value Proposition - middle content
+    if (categoryLower.includes('value') || categoryLower.includes('proposition')) {
+        const paragraphs = body.split('\n\n');
+        // Return middle paragraph(s)
+        if (paragraphs.length >= 2) {
+            return paragraphs.slice(1, -1).join('\n\n');
+        }
+    }
+
+    // Length - return full body
+    if (categoryLower.includes('length')) {
+        return body;
+    }
+
+    // Default - return first meaningful paragraph
+    const paragraphs = body.split('\n\n');
+    return paragraphs[0] || '';
 }
 
 // Set Loading State

@@ -78,8 +78,14 @@ router.post('/improve', async (req, res) => {
 
 // POST /api/analyze-and-improve - Combined endpoint
 router.post('/analyze-and-improve', async (req, res) => {
+    const requestStartTime = Date.now();
+    console.log('\n========================================');
+    console.log('COMBINED ANALYZE-AND-IMPROVE REQUEST');
+    console.log('Started at:', new Date().toISOString());
+    console.log('========================================\n');
+
     try {
-        const { subjectLine, copy } = req.body;
+        const { subjectLine, copy, model } = req.body;
 
         // Validate subject line
         if (!subjectLine || typeof subjectLine !== 'string' || subjectLine.trim().length === 0) {
@@ -97,11 +103,37 @@ router.post('/analyze-and-improve', async (req, res) => {
             });
         }
 
-        // Get review from AI service
-        const review = await aiService.reviewCopy(subjectLine, copy);
+        // Log model selection
+        const selectedModel = model || 'claude-sonnet-4-5-20250929';
+        console.log(`Using model: ${selectedModel}`);
 
-        // Get improved copy from AI service
-        const improvedCopy = await aiService.improveCopy(subjectLine, copy, review);
+        // Create a new session for this review+improve pair
+        const sessionId = aiService.createSession();
+        console.log(`Session created: ${sessionId}`);
+
+        // Step 1: Get review from AI service
+        console.log('[Step 1/2] Starting REVIEW API call...');
+        const reviewStartTime = Date.now();
+        const review = await aiService.reviewCopy(subjectLine, copy, selectedModel);
+        const reviewDuration = Date.now() - reviewStartTime;
+        console.log(`[Step 1/2] REVIEW completed in ${reviewDuration}ms`);
+        console.log(`Total elapsed time: ${Date.now() - requestStartTime}ms\n`);
+
+        // Step 2: Get improved copy from AI service
+        console.log('[Step 2/2] Starting IMPROVE API call...');
+        const improveStartTime = Date.now();
+        const improvedCopy = await aiService.improveCopy(subjectLine, copy, review, selectedModel);
+        const improveDuration = Date.now() - improveStartTime;
+        console.log(`[Step 2/2] IMPROVE completed in ${improveDuration}ms`);
+
+        const totalDuration = Date.now() - requestStartTime;
+        console.log('\n========================================');
+        console.log('REQUEST COMPLETED SUCCESSFULLY');
+        console.log(`Review took: ${reviewDuration}ms`);
+        console.log(`Improve took: ${improveDuration}ms`);
+        console.log(`Total request time: ${totalDuration}ms`);
+        console.log('Completed at:', new Date().toISOString());
+        console.log('========================================\n');
 
         // Return combined response
         res.json({
@@ -123,7 +155,14 @@ router.post('/analyze-and-improve', async (req, res) => {
             expectedImpact: improvedCopy.expectedImpact
         });
     } catch (error) {
-        console.error('Error in analyze-and-improve endpoint:', error);
+        const totalDuration = Date.now() - requestStartTime;
+        console.error('\n========================================');
+        console.error('REQUEST FAILED');
+        console.error(`Total time before error: ${totalDuration}ms`);
+        console.error('Error:', error.message);
+        console.error('Failed at:', new Date().toISOString());
+        console.error('========================================\n');
+
         res.status(500).json({
             error: 'Analysis failed',
             message: error.message || 'Failed to analyze and improve the copy. Please try again.'

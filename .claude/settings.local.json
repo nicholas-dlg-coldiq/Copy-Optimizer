@@ -19,7 +19,19 @@
       "Bash(taskkill //F //PID 23908)",
       "Bash(taskkill //F //PID 77212)",
       "Bash(taskkill //F //PID 36724)",
-      "Bash(taskkill //F //PID 45732)"
+      "Bash(taskkill //F //PID 45732)",
+      "Bash(taskkill //F //PID 53856)",
+      "Bash(npm install:*)",
+      "Bash(node -e:*)",
+      "Bash(node:*)",
+      "Bash(npm test:*)",
+      "Bash(npx jest:*)",
+      "Bash(taskkill //F //PID 52576)",
+      "Bash(taskkill //F //PID 45140)",
+      "Bash(taskkill //F //PID 528)",
+      "Bash(taskkill //F //PID 47868)",
+      "Bash(taskkill //F //PID 52568)",
+      "Bash(taskkill //F //PID 34324)"
     ],
     "deny": [],
     "ask": []

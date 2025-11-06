@@ -1,6 +1,8 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const bestPerformingCopies = require('../data/bestPerformingCopies');
 const { getBestPracticesContext } = require('../data/bestPractices');
+const fs = require('fs');
+const path = require('path');
 
 class AIService {
     constructor() {
@@ -8,14 +10,268 @@ class AIService {
 
         if (this.provider === 'claude') {
             this.anthropic = new Anthropic({
-                apiKey: process.env.ANTHROPIC_API_KEY
+                apiKey: process.env.ANTHROPIC_API_KEY,
+                timeout: 60000 // 60 seconds timeout
             });
+        }
+
+        // Create logs directory if it doesn't exist
+        this.logsDir = path.join(__dirname, '..', 'logs');
+        if (!fs.existsSync(this.logsDir)) {
+            fs.mkdirSync(this.logsDir, { recursive: true });
+        }
+
+        // Session tracking for linking review + improve
+        this.currentSessionId = null;
+        this.sessionData = {};
+    }
+
+    createSession() {
+        const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\./g, '-');
+        this.currentSessionId = `session_${timestamp}`;
+        this.sessionData = {
+            sessionId: this.currentSessionId,
+            startTime: Date.now(),
+            review: null,
+            improve: null
+        };
+
+        // Create session directory
+        const sessionDir = path.join(this.logsDir, this.currentSessionId);
+        if (!fs.existsSync(sessionDir)) {
+            fs.mkdirSync(sessionDir, { recursive: true });
+        }
+
+        return this.currentSessionId;
+    }
+
+    logPromptAndResponse(type, data) {
+        try {
+            if (!this.currentSessionId) {
+                this.createSession();
+            }
+
+            const sessionDir = path.join(this.logsDir, this.currentSessionId);
+
+            // Store data for session summary
+            if (type === 'review') {
+                this.sessionData.review = {
+                    ...data,
+                    timestamp: new Date().toISOString()
+                };
+            } else if (type === 'improve') {
+                this.sessionData.improve = {
+                    ...data,
+                    timestamp: new Date().toISOString()
+                };
+            }
+
+            // Write detailed log file
+            const filename = `${type}_detailed.log`;
+            const filepath = path.join(sessionDir, filename);
+
+            const logContent = `
+================================================================================
+${type.toUpperCase()} LOG
+Generated: ${new Date().toISOString()}
+================================================================================
+
+SYSTEM PROMPT:
+${'-'.repeat(80)}
+${data.systemPrompt}
+${'-'.repeat(80)}
+
+USER PROMPT:
+${'-'.repeat(80)}
+${data.userPrompt}
+${'-'.repeat(80)}
+
+${data.reviewData ? `REVIEW DATA (for improve step):
+${'-'.repeat(80)}
+${JSON.stringify(data.reviewData, null, 2)}
+${'-'.repeat(80)}
+
+` : ''}AI RESPONSE:
+${'-'.repeat(80)}
+${data.response}
+${'-'.repeat(80)}
+
+${data.parsedResponse ? `PARSED RESPONSE:
+${'-'.repeat(80)}
+${JSON.stringify(data.parsedResponse, null, 2)}
+${'-'.repeat(80)}
+` : ''}
+METADATA:
+${'-'.repeat(80)}
+Model: ${data.model}
+Response Time: ${data.responseTime}ms
+Stop Reason: ${data.stopReason}
+Content Length: ${data.contentLength} characters
+${'-'.repeat(80)}
+`;
+
+            fs.writeFileSync(filepath, logContent, 'utf8');
+            console.log(`✓ ${type} logged to: logs/${this.currentSessionId}/${filename}`);
+
+            // Generate session summary if both review and improve are complete
+            if (this.sessionData.review && this.sessionData.improve) {
+                this.generateSessionSummary();
+            }
+        } catch (error) {
+            console.error('Failed to log prompt/response:', error.message);
         }
     }
 
-    async reviewCopy(subjectLine, emailCopy) {
+    generateSessionSummary() {
+        try {
+            const sessionDir = path.join(this.logsDir, this.currentSessionId);
+            const summaryPath = path.join(sessionDir, 'SUMMARY.md');
+
+            const totalTime = Date.now() - this.sessionData.startTime;
+            const reviewData = this.sessionData.review;
+            const improveData = this.sessionData.improve;
+
+            // Extract input/output data
+            const inputSubject = this.extractSubjectFromPrompt(reviewData.userPrompt);
+            const inputBody = this.extractBodyFromPrompt(reviewData.userPrompt);
+            const outputSubject = improveData.parsedResponse?.improvedSubject || 'N/A';
+            const outputBody = improveData.parsedResponse?.improvedBody || 'N/A';
+
+            // Extract key feedback
+            const score = reviewData.parsedResponse?.overallScore || 0;
+            const keyIssues = this.extractKeyIssues(reviewData.parsedResponse);
+            const keyChanges = this.extractKeyChanges(improveData.parsedResponse);
+
+            const summary = `# Session Summary
+
+**Session ID:** ${this.currentSessionId}
+**Generated:** ${new Date().toISOString()}
+**Total Time:** ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)
+
+---
+
+## Input
+
+### Original Subject Line
+\`\`\`
+${inputSubject}
+\`\`\`
+
+### Original Email Body
+\`\`\`
+${inputBody}
+\`\`\`
+
+---
+
+## Review Results
+
+**Overall Score:** ${score}/100
+**Model:** ${reviewData.model}
+**Time:** ${reviewData.responseTime}ms
+**Stop Reason:** ${reviewData.stopReason}
+**Cache Used:** ${reviewData.systemPrompt.includes('cache_control') ? 'Yes' : 'No'}
+
+### Key Issues Identified
+${keyIssues}
+
+---
+
+## Improved Version
+
+### Improved Subject Line
+\`\`\`
+${outputSubject}
+\`\`\`
+
+### Improved Email Body
+\`\`\`
+${outputBody.replace(/\\n\\n/g, '\n\n')}
+\`\`\`
+
+**Model:** ${improveData.model}
+**Time:** ${improveData.responseTime}ms
+**Stop Reason:** ${improveData.stopReason}
+
+### Key Changes Made
+${keyChanges}
+
+### Further Tips
+${this.extractFurtherTips(improveData.parsedResponse)}
+
+---
+
+## Performance Metrics
+
+| Metric | Review | Improve | Total |
+|--------|--------|---------|-------|
+| **Time** | ${reviewData.responseTime}ms | ${improveData.responseTime}ms | ${totalTime}ms |
+| **Model** | ${reviewData.model} | ${improveData.model} | - |
+| **Response Length** | ${reviewData.contentLength} chars | ${improveData.contentLength} chars | ${reviewData.contentLength + improveData.contentLength} chars |
+| **Stop Reason** | ${reviewData.stopReason} | ${improveData.stopReason} | - |
+| **Prompt Cache** | Yes (ephemeral) | Yes (ephemeral) | - |
+
+---
+
+## Files in This Session
+
+- \`SUMMARY.md\` - This human-readable summary (you are here)
+- \`review_detailed.log\` - Full review prompt, response, and metadata
+- \`improve_detailed.log\` - Full improve prompt, response, and metadata
+
+---
+
+*Generated by Copy Reviewer AI*
+`;
+
+            fs.writeFileSync(summaryPath, summary, 'utf8');
+            console.log(`✓ Session summary generated: logs/${this.currentSessionId}/SUMMARY.md`);
+        } catch (error) {
+            console.error('Failed to generate session summary:', error.message);
+        }
+    }
+
+    extractSubjectFromPrompt(userPrompt) {
+        const match = userPrompt.match(/---SUBJECT LINE---\n([\s\S]*?)\n---END SUBJECT LINE---/);
+        return match ? match[1].trim() : 'N/A';
+    }
+
+    extractBodyFromPrompt(userPrompt) {
+        const match = userPrompt.match(/---EMAIL BODY---\n([\s\S]*?)\n---END EMAIL BODY---/);
+        return match ? match[1].trim() : 'N/A';
+    }
+
+    extractKeyIssues(reviewResponse) {
+        if (!reviewResponse || !reviewResponse.sections) return '- No issues identified';
+
+        const issues = [];
+        for (const section of reviewResponse.sections.slice(0, 5)) { // Top 5 sections
+            if (section.items && section.items.length > 0) {
+                issues.push(`- **${section.title}:** ${section.items[0]}`);
+            }
+        }
+        return issues.length > 0 ? issues.join('\n') : '- No specific issues identified';
+    }
+
+    extractKeyChanges(improveResponse) {
+        if (!improveResponse || !improveResponse.changes) return '- No changes documented';
+
+        const changes = improveResponse.changes.slice(0, 5).map((change, i) =>
+            `${i + 1}. **${change.category}:** ${change.summary || change.reason}`
+        );
+        return changes.length > 0 ? changes.join('\n') : '- No changes documented';
+    }
+
+    extractFurtherTips(improveResponse) {
+        if (!improveResponse || !improveResponse.furtherTips || improveResponse.furtherTips.length === 0) {
+            return '- No additional tips provided';
+        }
+        return improveResponse.furtherTips.map((tip, i) => `${i + 1}. ${tip}`).join('\n');
+    }
+
+    async reviewCopy(subjectLine, emailCopy, model) {
         if (this.provider === 'claude') {
-            return await this.reviewWithClaude(subjectLine, emailCopy);
+            return await this.reviewWithClaude(subjectLine, emailCopy, model);
         } else if (this.provider === 'openai') {
             return await this.reviewWithOpenAI(subjectLine, emailCopy);
         } else {
@@ -23,29 +279,94 @@ class AIService {
         }
     }
 
-    async reviewWithClaude(subjectLine, emailCopy) {
+    async reviewWithClaude(subjectLine, emailCopy, model = 'claude-sonnet-4-5-20250929') {
         const systemPrompt = this.buildSystemPrompt();
         const userPrompt = this.buildUserPrompt(subjectLine, emailCopy);
 
+        console.log('=== Starting Claude API Request (Review) ===');
+        console.log('Model:', model);
+        console.log('Subject Line Length:', subjectLine.length);
+        console.log('Email Copy Length:', emailCopy.length);
+        console.log('System Prompt Length:', systemPrompt.length);
+        console.log('User Prompt Length:', userPrompt.length);
+        console.log('Timeout: 60000ms');
+        console.log('Request started at:', new Date().toISOString());
+
         try {
+            const startTime = Date.now();
             const message = await this.anthropic.messages.create({
-                model: 'claude-3-5-sonnet-20241022',
-                max_tokens: 2000,
+                model: model,
+                max_tokens: 3000, // Optimized for concise responses
                 temperature: 0.7,
-                system: systemPrompt,
+                system: [
+                    {
+                        type: "text",
+                        text: systemPrompt,
+                        cache_control: { type: "ephemeral" } // Cache system prompt for 5 minutes
+                    }
+                ],
                 messages: [
                     {
                         role: 'user',
                         content: userPrompt
+                    },
+                    {
+                        role: 'assistant',
+                        content: '{\n    "overallScore":' // Prefill to enforce JSON structure (no trailing space)
                     }
                 ]
             });
+            const duration = Date.now() - startTime;
+
+            console.log('=== Claude API Response Received ===');
+            console.log('Response time:', duration + 'ms');
+            console.log('Response completed at:', new Date().toISOString());
+            console.log('Response content length:', message.content[0].text.length);
+            console.log('Stop reason:', message.stop_reason);
+
+            // Check if response was cut off
+            if (message.stop_reason === 'max_tokens') {
+                console.warn('WARNING: Response was truncated due to max_tokens limit');
+                throw new Error('Response was incomplete. The AI model hit the token limit. Please try with a shorter email or contact support.');
+            }
 
             const responseText = message.content[0].text;
-            return this.parseAIResponse(responseText);
+            const parsedResponse = this.parseAIResponse(responseText);
+
+            // Log the prompt and response
+            this.logPromptAndResponse('review', {
+                systemPrompt,
+                userPrompt,
+                response: responseText,
+                parsedResponse,
+                model,
+                responseTime: duration,
+                stopReason: message.stop_reason,
+                contentLength: responseText.length
+            });
+
+            return parsedResponse;
         } catch (error) {
-            console.error('Claude API error:', error);
-            throw new Error('Failed to get review from Claude API');
+            console.error('=== Claude API Error ===');
+            console.error('Error occurred at:', new Date().toISOString());
+            console.error('Error type:', error.constructor.name);
+            console.error('Error status:', error.status);
+            console.error('Error code:', error.code);
+            console.error('Error message:', error.message);
+            console.error('Full error:', JSON.stringify(error, null, 2));
+
+            if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+                throw new Error(`Request timed out after 60 seconds. The API may be slow or unavailable. Please try again.`);
+            } else if (error.status === 404) {
+                throw new Error(`Claude API model not found. Please check your API key has access to ${model}. Error: ${error.message}`);
+            } else if (error.status === 401) {
+                throw new Error('Invalid or expired Anthropic API key. Please update ANTHROPIC_API_KEY in your .env file.');
+            } else if (error.status === 429) {
+                throw new Error('Rate limit exceeded. Please try again later.');
+            } else if (error.status === 529) {
+                throw new Error('Claude API is temporarily overloaded. Please wait a moment and try again.');
+            }
+            throw new Error(`Failed to get review from Claude API: ${error.message} (Status: ${error.status}, Code: ${error.code})`);
         }
     }
 
@@ -55,9 +376,9 @@ class AIService {
         throw new Error('OpenAI integration not yet implemented. Please use Claude.');
     }
 
-    async improveCopy(subjectLine, emailCopy, review) {
+    async improveCopy(subjectLine, emailCopy, review, model) {
         if (this.provider === 'claude') {
-            return await this.improveWithClaude(subjectLine, emailCopy, review);
+            return await this.improveWithClaude(subjectLine, emailCopy, review, model);
         } else if (this.provider === 'openai') {
             return await this.improveWithOpenAI(subjectLine, emailCopy, review);
         } else {
@@ -65,29 +386,95 @@ class AIService {
         }
     }
 
-    async improveWithClaude(subjectLine, emailCopy, review) {
+    async improveWithClaude(subjectLine, emailCopy, review, model = 'claude-sonnet-4-5-20250929') {
         const systemPrompt = this.buildImproveSystemPrompt();
         const userPrompt = this.buildImproveUserPrompt(subjectLine, emailCopy, review);
 
+        console.log('=== Starting Claude API Request (Improve) ===');
+        console.log('Model:', model);
+        console.log('Subject Line Length:', subjectLine.length);
+        console.log('Email Copy Length:', emailCopy.length);
+        console.log('System Prompt Length:', systemPrompt.length);
+        console.log('User Prompt Length:', userPrompt.length);
+        console.log('Timeout: 60000ms');
+        console.log('Request started at:', new Date().toISOString());
+
         try {
+            const startTime = Date.now();
             const message = await this.anthropic.messages.create({
-                model: 'claude-3-5-sonnet-20241022',
-                max_tokens: 2000,
+                model: model,
+                max_tokens: 3000, // Optimized for concise responses
                 temperature: 0.8,
-                system: systemPrompt,
+                system: [
+                    {
+                        type: "text",
+                        text: systemPrompt,
+                        cache_control: { type: "ephemeral" } // Cache system prompt for 5 minutes
+                    }
+                ],
                 messages: [
                     {
                         role: 'user',
                         content: userPrompt
+                    },
+                    {
+                        role: 'assistant',
+                        content: '{\n    "improvedSubject":"' // Prefill to enforce JSON structure (no trailing space)
                     }
                 ]
             });
+            const duration = Date.now() - startTime;
+
+            console.log('=== Claude API Response Received ===');
+            console.log('Response time:', duration + 'ms');
+            console.log('Response completed at:', new Date().toISOString());
+            console.log('Response content length:', message.content[0].text.length);
+            console.log('Stop reason:', message.stop_reason);
+
+            // Check if response was cut off
+            if (message.stop_reason === 'max_tokens') {
+                console.warn('WARNING: Response was truncated due to max_tokens limit');
+                throw new Error('Response was incomplete. The AI model hit the token limit. Please try with a shorter email or contact support.');
+            }
 
             const responseText = message.content[0].text;
-            return this.parseImproveResponse(responseText);
+            const parsedResponse = this.parseImproveResponse(responseText);
+
+            // Log the prompt and response
+            this.logPromptAndResponse('improve', {
+                systemPrompt,
+                userPrompt,
+                reviewData: review,
+                response: responseText,
+                parsedResponse,
+                model,
+                responseTime: duration,
+                stopReason: message.stop_reason,
+                contentLength: responseText.length
+            });
+
+            return parsedResponse;
         } catch (error) {
-            console.error('Claude API error:', error);
-            throw new Error('Failed to generate improved copy from Claude API');
+            console.error('=== Claude API Error ===');
+            console.error('Error occurred at:', new Date().toISOString());
+            console.error('Error type:', error.constructor.name);
+            console.error('Error status:', error.status);
+            console.error('Error code:', error.code);
+            console.error('Error message:', error.message);
+            console.error('Full error:', JSON.stringify(error, null, 2));
+
+            if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+                throw new Error(`Request timed out after 60 seconds. The API may be slow or unavailable. Please try again.`);
+            } else if (error.status === 404) {
+                throw new Error(`Claude API model not found. Please check your API key has access to ${model}. Error: ${error.message}`);
+            } else if (error.status === 401) {
+                throw new Error('Invalid or expired Anthropic API key. Please update ANTHROPIC_API_KEY in your .env file.');
+            } else if (error.status === 429) {
+                throw new Error('Rate limit exceeded. Please try again later.');
+            } else if (error.status === 529) {
+                throw new Error('Claude API is temporarily overloaded. Please wait a moment and try again.');
+            }
+            throw new Error(`Failed to generate improved copy from Claude API: ${error.message} (Status: ${error.status}, Code: ${error.code})`);
         }
     }
 
@@ -99,72 +486,51 @@ class AIService {
         const bestCopiesContext = bestPerformingCopies.getBestCopiesSummary();
         const bestPracticesContext = getBestPracticesContext();
 
-        return `You are an expert cold email copywriter. Your role is to rewrite cold emails to maximize response rates based on proven best practices and patterns.
+        return `You are an expert cold email copywriter. Rewrite cold emails to maximize response rates.
 
 ${bestPracticesContext}
 
-BEST PERFORMING PATTERNS (from our database):
+BEST PERFORMING PATTERNS:
 ${bestCopiesContext}
 
-Your rewrite should:
-1. Apply the feedback from the review
-2. Follow the patterns from our best performing emails
-3. Maintain the core value proposition but improve delivery
-4. Be specific, personalized, and action-oriented
-5. Optimize for clarity and brevity (70-95 words for body)
-6. Use conversational, authentic tone
-7. Ensure proper paragraph spacing with double line breaks between paragraphs
+REWRITE GUIDELINES:
+- Apply review feedback
+- Follow best performing patterns
+- Keep body 70-95 words
+- Conversational tone
+- Use \\n\\n between paragraphs
+- Make changes concise but specific
 
-Respond ONLY with valid JSON in this exact structure:
+JSON RULES:
+- Valid JSON only (no markdown)
+- NO trailing commas
+- Escape quotes: \"
+- Keep explanations brief
+
+Structure:
 {
-    "improvedSubject": "<improved subject line>",
-    "improvedBody": "<improved email body with \\n\\n between paragraphs>",
+    "improvedSubject": "<improved subject>",
+    "improvedBody": "<improved body with \\n\\n breaks>",
     "changes": [
         {
-            "category": "<category name, e.g., Subject Line, Opening Hook, etc.>",
-            "issue": "<what was wrong with the original - be specific and brief>",
-            "reason": "<what you changed/fixed - describe the improvement>",
-            "why": "<why this works - include data/stats when possible, e.g., '4-7 word subjects get 2x higher opens'>",
-            "summary": "<1 short sentence (under 12 words) explaining the key change>",
-            "detail": "<2-3 sentences with deeper explanation of the change, the reasoning, and any relevant signals used (hiring, expansion, funding, etc.). Mention specific signals if applicable.>",
-            "signal": "<if a signal was used (expansion, hiring, funding, executive change, etc.), mention it here. Otherwise leave empty string>"
+            "category": "<Subject/Opening/Value Prop/etc>",
+            "issue": "<problem, under 10 words>",
+            "reason": "<fix applied, under 10 words>",
+            "why": "<why it works + data, 1-2 sentences>",
+            "summary": "<key change, under 12 words>",
+            "detail": "<2-3 sentences explaining change and reasoning>",
+            "signal": "<signal used if any: Growth/Hiring/Funding/etc, or empty>"
         }
     ],
     "furtherTips": [
-        "<most impactful tip for personalization - be specific>",
-        "<second most impactful tip about research or tactics>",
-        "<third most impactful tip from best practices>"
+        "<specific personalization tip>",
+        "<research/data tip>",
+        "<best practice tip>"
     ],
-    "expectedImpact": "<brief summary of how this should perform better>"
+    "expectedImpact": "<1 sentence performance prediction>"
 }
 
-IMPORTANT for changes array:
-- Keep "issue" and "reason" SHORT and punchy (under 10 words each when possible)
-- Make "why" data-driven but concise - 1-2 short sentences max
-- "summary" is what shows when collapsed - make it ultra-concise (under 12 words)
-- "detail" is what shows when expanded - 2-3 sentences with deeper reasoning
-- "signal" should mention if you used Company Growth, Hiring, Funding, Executive Change, Product Launch, Content/Social, Awards, etc.
-- Each change shows: Issue (problem) → Reason (fix) → Why (data-backed reasoning)
-- Examples:
-  - issue: "12 words, no personalization"
-  - reason: "7 words with [Company] placeholder"
-  - why: "4-7 word subjects get 2x higher opens. Personalization adds +26%."
-  - summary: "Shortened subject and added personalization placeholder"
-  - detail: "The original subject was too long at 12 words. Research shows 4-7 word subjects get 2x higher open rates, and personalization increases opens by 26%. We shortened it to 7 words and added a [Company] placeholder for easy personalization."
-  - signal: ""
-
-  - issue: "Generic greeting, no research"
-  - reason: "Specific milestone: midwest expansion"
-  - why: "Specific observations boost replies by 32% - proves you did homework."
-  - summary: "Used company expansion signal for authentic personalization"
-  - detail: "Generic greetings sound mass-sent. We leveraged a real signal - their recent midwest expansion - to show genuine research. Specific observations like this boost reply rates by 32% because they prove you're not sending the same email to thousands of people."
-  - signal: "Company Growth & Expansion"
-
-IMPORTANT for furtherTips:
-- ONLY provide exactly 3 tips (no more, no less)
-- Make each tip specific and actionable (not generic advice)
-- Focus on: ultra-specific personalization tactics, using real research/data, advanced tactics from best practices
-- Examples: LinkedIn posts, company news, specific case studies, triggers like job changes/funding, "give an out" lines`;
+Keep changes array focused (3-5 items max). Keep all text concise.`;
     }
 
     buildImproveUserPrompt(subjectLine, emailCopy, review) {
@@ -188,29 +554,64 @@ Generate an improved version that addresses the feedback and follows best perfor
 
     parseImproveResponse(responseText) {
         try {
-            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            // Remove ALL markdown code blocks (not just at line starts/ends)
+            let cleanedText = responseText
+                .replace(/```json/g, '')  // Remove ALL ```json occurrences
+                .replace(/```/g, '')       // Remove ALL ``` occurrences
+                .trim();
+
+            // Log diagnostic info
+            console.log('=== JSON Parsing (Improve) ===');
+            console.log('Original length:', responseText.length);
+            console.log('Cleaned length:', cleanedText.length);
+            console.log('First 100 chars:', cleanedText.substring(0, 100));
+            console.log('Last 100 chars:', cleanedText.substring(Math.max(0, cleanedText.length - 100)));
+
+            // Prepend the prefill content that was stripped
+            cleanedText = '{\n    "improvedSubject":"' + cleanedText;
+
+            const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                // Clean the JSON string by removing control characters within string values
                 let jsonString = jsonMatch[0];
+                console.log('JSON extracted, length:', jsonString.length);
 
                 // First try to parse directly
                 try {
                     const parsed = JSON.parse(jsonString);
                     return this.validateImproveResponse(parsed);
                 } catch (parseError) {
-                    // If that fails, try a more aggressive cleaning approach
                     console.log('Initial parse failed, attempting to clean JSON...');
+                    console.log('Parse error:', parseError.message);
 
-                    // Remove control characters but preserve intentional newlines in content
-                    jsonString = jsonString.replace(/[\u0000-\u001F]+/g, ' ');
+                    // Apply multiple cleanup strategies
+                    // 1. Remove trailing commas in arrays and objects
+                    jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
 
-                    const parsed = JSON.parse(jsonString);
-                    return this.validateImproveResponse(parsed);
+                    // 2. Fix common quote issues in strings
+                    // Replace unescaped quotes within string values
+                    // This is a simple approach - may need refinement
+
+                    try {
+                        const parsed = JSON.parse(jsonString);
+                        return this.validateImproveResponse(parsed);
+                    } catch (secondError) {
+                        console.log('Second parse attempt failed:', secondError.message);
+                        console.log('JSON excerpt around error:', jsonString.substring(Math.max(0, secondError.message.match(/\d+/)?.[0] - 100), Math.min(jsonString.length, parseInt(secondError.message.match(/\d+/)?.[0] || 0) + 100)));
+
+                        // Last resort: try to fix the specific position
+                        const errorPos = parseInt(secondError.message.match(/position (\d+)/)?.[1] || 0);
+                        if (errorPos > 0) {
+                            console.log('Character at error position:', jsonString[errorPos], 'Code:', jsonString.charCodeAt(errorPos));
+                        }
+
+                        throw secondError;
+                    }
                 }
             }
             throw new Error('No valid JSON found in response');
         } catch (error) {
             console.error('Failed to parse improve response:', error);
+            console.error('Response text excerpt:', responseText.substring(0, 500));
             throw new Error('Failed to parse improved copy response');
         }
     }
@@ -232,44 +633,39 @@ Generate an improved version that addresses the feedback and follows best perfor
         const bestCopiesContext = bestPerformingCopies.getBestCopiesSummary();
         const bestPracticesContext = getBestPracticesContext();
 
-        return `You are an expert cold email copywriter and analyst. Your role is to review cold email copy and provide actionable, specific feedback to improve response rates.
+        return `You are an expert cold email copywriter. Review cold emails and provide concise, actionable feedback.
 
 ${bestPracticesContext}
 
-BEST PERFORMING PATTERNS (from our database):
+BEST PERFORMING PATTERNS:
 ${bestCopiesContext}
 
-Your analysis should:
-1. Be specific and actionable
-2. Reference concrete examples from the best performing patterns
-3. Provide a numerical score out of 100
-4. Break down feedback into clear sections
-5. Be constructive and encouraging while being honest
+RESPONSE RULES:
+- Be specific and concise (2-3 sentences per section)
+- Keep items short (under 15 words each)
+- Maximum 3-4 items per section
+- Focus on highest-impact improvements
+- Respond ONLY with valid JSON (no markdown, no explanations)
+- NO trailing commas
+- Escape quotes with backslash: \"
 
-Respond ONLY with valid JSON in this exact structure:
+JSON Structure:
 {
     "overallScore": <number 0-100>,
     "sections": [
         {
             "title": "<section name>",
-            "content": "<main feedback>",
-            "items": ["<point 1>", "<point 2>", ...],
+            "content": "<2-3 sentence feedback>",
+            "items": ["<short point 1>", "<short point 2>", "<short point 3>"],
             "highlight": {
-                "title": "<highlight title>",
-                "content": "<key takeaway>"
+                "title": "<1-3 word title>",
+                "content": "<1 sentence key takeaway>"
             }
         }
     ]
 }
 
-Sections should include:
-- Subject Line Analysis
-- Opening Hook
-- Value Proposition
-- Personalization
-- Call to Action
-- Length and Structure
-- Comparison to Best Performers`;
+Include these sections: Subject Line Analysis, Opening Hook, Value Proposition, Personalization, Call to Action, Length & Structure, vs Best Performers`;
     }
 
     buildUserPrompt(subjectLine, emailCopy) {
@@ -288,16 +684,49 @@ Provide your analysis in the JSON format specified.`;
 
     parseAIResponse(responseText) {
         try {
+            // Remove ALL markdown code blocks (not just at line starts/ends)
+            let cleanedText = responseText
+                .replace(/```json/g, '')  // Remove ALL ```json occurrences
+                .replace(/```/g, '')       // Remove ALL ``` occurrences
+                .trim();
+
+            // Log diagnostic info
+            console.log('=== JSON Parsing (Review) ===');
+            console.log('Original length:', responseText.length);
+            console.log('Cleaned length:', cleanedText.length);
+            console.log('First 100 chars:', cleanedText.substring(0, 100));
+            console.log('Last 100 chars:', cleanedText.substring(Math.max(0, cleanedText.length - 100)));
+
+            // Prepend the prefill content that was stripped
+            cleanedText = '{\n    "overallScore":' + cleanedText;
+
             // Try to extract JSON from the response
-            // Sometimes the AI might add explanatory text before/after the JSON
-            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                return this.validateResponse(parsed);
+                let jsonString = jsonMatch[0];
+                console.log('JSON extracted, length:', jsonString.length);
+
+                // Try to parse directly first
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    return this.validateResponse(parsed);
+                } catch (parseError) {
+                    console.log('Initial parse failed, attempting to clean JSON...');
+                    console.log('Parse error:', parseError.message);
+
+                    // Fix common JSON issues
+                    // 1. Remove trailing commas in arrays and objects
+                    jsonString = jsonString.replace(/,(\s*[}\]])/g, '$1');
+
+                    // 2. Try parsing again
+                    const parsed = JSON.parse(jsonString);
+                    return this.validateResponse(parsed);
+                }
             }
             throw new Error('No valid JSON found in response');
         } catch (error) {
             console.error('Failed to parse AI response:', error);
+            console.error('Response text excerpt:', responseText.substring(0, 500));
             // Return a fallback response
             return this.getFallbackResponse(responseText);
         }

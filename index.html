@@ -10,18 +10,46 @@
     <div class="container">
         <div class="copy-reviewer">
             <div class="header-section">
-                <div>
+                <div class="header-title-section">
                     <h1 class="title">ColdIQ Email Optimizer</h1>
                     <p class="subtitle">Ship emails that land.</p>
                 </div>
                 <div class="header-actions">
                     <button id="trySampleBtn" class="btn-sample">Try Sample</button>
-                    <div class="demo-toggle">
-                        <label class="toggle-label">
-                            <input type="checkbox" id="demoModeToggle" checked>
-                            <span class="toggle-slider"></span>
-                            <span class="toggle-text">Demo Mode</span>
-                        </label>
+                    <button id="settingsBtn" class="btn-settings" title="Settings">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="10" cy="10" r="3"></circle>
+                            <path d="M10 1v2m0 14v2M4.22 4.22l1.42 1.42m8.48 8.48l1.42 1.42M1 10h2m14 0h2M4.22 15.78l1.42-1.42m8.48-8.48l1.42-1.42"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Settings Modal -->
+            <div id="settingsModal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Settings</h2>
+                        <button id="closeSettingsBtn" class="btn-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="settings-group">
+                            <label for="modelSelectModal" class="settings-label">AI Model</label>
+                            <select id="modelSelectModal" class="settings-dropdown">
+                                <option value="claude-sonnet-4-5-20250929">Sonnet 4.5 (Recommended)</option>
+                                <option value="claude-haiku-4-5-20251001">Haiku 4.5 (Faster, Less Reliable)</option>
+                            </select>
+                            <p class="settings-help">Sonnet recommended for reliable JSON. Haiku is 2-3x faster but may have parsing errors.</p>
+                        </div>
+                        <div class="settings-group">
+                            <label class="settings-label">Demo Mode</label>
+                            <label class="toggle-label-settings">
+                                <input type="checkbox" id="demoModeToggleModal" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-text">Enable demo mode (no API calls)</span>
+                            </label>
+                            <p class="settings-help">Test the UI without making real API calls</p>
+                        </div>
                     </div>
                 </div>
             </div>
