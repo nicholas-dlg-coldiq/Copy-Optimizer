@@ -95,6 +95,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+// Health check endpoint (for Railway and other cloud platforms)
+app.get('/health', (_req, res) => {
+    res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Routes
 app.use('/api', reviewRouter);
 
