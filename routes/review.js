@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const aiService = require('../services/aiService');
+const databaseService = require('../services/databaseService');
 
 // Helper function to format time in both ms and seconds
 function formatTime(ms) {
@@ -90,7 +91,7 @@ router.post('/analyze-and-improve', async (req, res) => {
     console.log('========================================\n');
 
     try {
-        const { subjectLine, copy, model } = req.body;
+        const { subjectLine, copy, model, email } = req.body;
 
         // Validate subject line
         if (!subjectLine || typeof subjectLine !== 'string' || subjectLine.trim().length === 0) {
@@ -105,6 +106,14 @@ router.post('/analyze-and-improve', async (req, res) => {
             return res.status(400).json({
                 error: 'Invalid request',
                 message: 'Email body is required and must be a non-empty string'
+            });
+        }
+
+        // Validate email address
+        if (!email || typeof email !== 'string' || email.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Invalid request',
+                message: 'Email address is required and must be a non-empty string'
             });
         }
 
@@ -126,6 +135,22 @@ router.post('/analyze-and-improve', async (req, res) => {
         console.log(`Total request time: ${formatTime(totalDuration)}`);
         console.log('Completed at:', new Date().toISOString());
         console.log('========================================\n');
+
+        // Track usage in database (non-blocking, won't affect response)
+        try {
+            const userAgent = req.headers['user-agent'] || 'Unknown';
+            const ipAddress = req.ip || req.connection.remoteAddress || 'Unknown';
+
+            await databaseService.trackCopyGraderUsage({
+                email: email.trim(),
+                sessionId: sessionId,
+                userAgent: userAgent,
+                ipAddress: ipAddress
+            });
+        } catch (dbError) {
+            // Log error but don't fail the request
+            console.error('⚠️  Database tracking failed (non-critical):', dbError.message);
+        }
 
         // Return combined response
         res.json({

@@ -339,7 +339,8 @@ async function analyzeAndImprove(subjectLine, copyText) {
         body: JSON.stringify({
             subjectLine: subjectLine,
             copy: copyText,
-            model: selectedModel
+            model: selectedModel,
+            email: emailAddressInput.value.trim()
         }),
         signal: AbortSignal.timeout(API_CONFIG.timeout)
     });
