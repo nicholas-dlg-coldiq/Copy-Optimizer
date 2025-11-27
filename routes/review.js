@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const aiService = require('../services/aiService');
 const databaseService = require('../services/databaseService');
-const { validateEmailInput, sanitizeInput } = require('../services/validationService');
+const { validateEmailRequest, validateEmailAddress, validateReviewData } = require('../middleware/validateEmailRequest');
 
 // Helper function to format time in both ms and seconds
 function formatTime(ms) {
@@ -10,43 +10,10 @@ function formatTime(ms) {
 }
 
 // POST /api/review-copy
-router.post('/review-copy', async (req, res) => {
+router.post('/review-copy', validateEmailRequest, async (req, res) => {
     try {
-        const { subjectLine, copy } = req.body;
-
-        // Validate subject line
-        if (!subjectLine || typeof subjectLine !== 'string' || subjectLine.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Subject line is required and must be a non-empty string'
-            });
-        }
-
-        // Validate email body
-        if (!copy || typeof copy !== 'string' || copy.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Email body is required and must be a non-empty string'
-            });
-        }
-
-        // Security validation
-        const validationErrors = validateEmailInput(subjectLine, copy);
-        if (validationErrors.length > 0) {
-            console.warn('⚠️  Security validation failed:', validationErrors);
-            return res.status(400).json({
-                error: 'Invalid input',
-                message: 'Your input contains invalid content. Please ensure you are submitting a legitimate email for review.',
-                details: validationErrors
-            });
-        }
-
-        // Sanitize inputs
-        const sanitizedSubject = sanitizeInput(subjectLine);
-        const sanitizedCopy = sanitizeInput(copy);
-
-        // Get review from AI service
-        const review = await aiService.reviewCopy(sanitizedSubject, sanitizedCopy);
+        // Get review from AI service (middleware already validated and sanitized)
+        const review = await aiService.reviewCopy(req.sanitizedSubject, req.sanitizedCopy);
 
         res.json(review);
     } catch (error) {
@@ -59,49 +26,12 @@ router.post('/review-copy', async (req, res) => {
 });
 
 // POST /api/improve
-router.post('/improve', async (req, res) => {
+router.post('/improve', validateEmailRequest, validateReviewData, async (req, res) => {
     try {
-        const { subjectLine, copy, review } = req.body;
+        const { review } = req.body;
 
-        // Validate inputs
-        if (!subjectLine || typeof subjectLine !== 'string' || subjectLine.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Subject line is required and must be a non-empty string'
-            });
-        }
-
-        if (!copy || typeof copy !== 'string' || copy.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Email body is required and must be a non-empty string'
-            });
-        }
-
-        if (!review || typeof review !== 'object') {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Review data is required'
-            });
-        }
-
-        // Security validation
-        const validationErrors = validateEmailInput(subjectLine, copy);
-        if (validationErrors.length > 0) {
-            console.warn('⚠️  Security validation failed:', validationErrors);
-            return res.status(400).json({
-                error: 'Invalid input',
-                message: 'Your input contains invalid content. Please ensure you are submitting a legitimate email for review.',
-                details: validationErrors
-            });
-        }
-
-        // Sanitize inputs
-        const sanitizedSubject = sanitizeInput(subjectLine);
-        const sanitizedCopy = sanitizeInput(copy);
-
-        // Get improved copy from AI service
-        const improvedCopy = await aiService.improveCopy(sanitizedSubject, sanitizedCopy, review);
+        // Get improved copy from AI service (middleware already validated and sanitized)
+        const improvedCopy = await aiService.improveCopy(req.sanitizedSubject, req.sanitizedCopy, review);
 
         res.json(improvedCopy);
     } catch (error) {
@@ -114,7 +44,7 @@ router.post('/improve', async (req, res) => {
 });
 
 // POST /api/analyze-and-improve - Combined endpoint
-router.post('/analyze-and-improve', async (req, res) => {
+router.post('/analyze-and-improve', validateEmailRequest, validateEmailAddress, async (req, res) => {
     const requestStartTime = Date.now();
     console.log('\n========================================');
     console.log('COMBINED ANALYZE-AND-IMPROVE REQUEST');
@@ -122,46 +52,7 @@ router.post('/analyze-and-improve', async (req, res) => {
     console.log('========================================\n');
 
     try {
-        const { subjectLine, copy, model, email } = req.body;
-
-        // Validate subject line
-        if (!subjectLine || typeof subjectLine !== 'string' || subjectLine.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Subject line is required and must be a non-empty string'
-            });
-        }
-
-        // Validate email body
-        if (!copy || typeof copy !== 'string' || copy.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Email body is required and must be a non-empty string'
-            });
-        }
-
-        // Validate email address
-        if (!email || typeof email !== 'string' || email.trim().length === 0) {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'Email address is required and must be a non-empty string'
-            });
-        }
-
-        // Security validation - check for malicious input
-        const validationErrors = validateEmailInput(subjectLine, copy);
-        if (validationErrors.length > 0) {
-            console.warn('⚠️  Security validation failed:', validationErrors);
-            return res.status(400).json({
-                error: 'Invalid input',
-                message: 'Your input contains invalid content. Please ensure you are submitting a legitimate email for review.',
-                details: validationErrors
-            });
-        }
-
-        // Sanitize inputs (remove control characters)
-        const sanitizedSubject = sanitizeInput(subjectLine);
-        const sanitizedCopy = sanitizeInput(copy);
+        const { model } = req.body;
 
         // Log model selection
         const selectedModel = model || 'claude-sonnet-4-5-20250929';
@@ -171,9 +62,9 @@ router.post('/analyze-and-improve', async (req, res) => {
         const sessionId = aiService.createSession();
         console.log(`Session created: ${sessionId}`);
 
-        // Single combined API call (use sanitized inputs)
+        // Single combined API call (use sanitized inputs from middleware)
         console.log('Starting COMBINED analyze-and-improve API call...');
-        const result = await aiService.analyzeAndImprove(sanitizedSubject, sanitizedCopy, selectedModel);
+        const result = await aiService.analyzeAndImprove(req.sanitizedSubject, req.sanitizedCopy, selectedModel);
 
         const totalDuration = Date.now() - requestStartTime;
         console.log('\n========================================');
@@ -188,7 +79,7 @@ router.post('/analyze-and-improve', async (req, res) => {
             const ipAddress = req.ip || req.connection.remoteAddress || 'Unknown';
 
             await databaseService.trackCopyGraderUsage({
-                email: email.trim(),
+                email: req.sanitizedEmail,
                 sessionId: sessionId,
                 userAgent: userAgent,
                 ipAddress: ipAddress
@@ -201,8 +92,8 @@ router.post('/analyze-and-improve', async (req, res) => {
         // Return combined response
         res.json({
             original: {
-                subjectLine: sanitizedSubject,
-                copy: sanitizedCopy
+                subjectLine: req.sanitizedSubject,
+                copy: req.sanitizedCopy
             },
             review: {
                 score: result.overallScore,

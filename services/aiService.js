@@ -160,6 +160,11 @@ class AIService {
         return defaultProvider;
     }
 
+    /**
+     * Creates a new session for tracking related requests (review + improve)
+     * Session IDs are used for logging and linking related operations
+     * @returns {string} The created session ID
+     */
     createSession() {
         const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\./g, '-');
         this.currentSessionId = `session_${timestamp}`;
@@ -458,6 +463,15 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
     }
 
 
+    /**
+     * Combined endpoint: Analyzes email copy and provides improvements in a single API call
+     * This is more efficient than calling review and improve separately
+     * @param {string} subjectLine - Email subject line to analyze
+     * @param {string} emailCopy - Email body content to analyze
+     * @param {string} [model] - Optional AI model to use (defaults to service provider)
+     * @returns {Promise<Object>} Combined analysis and improvement suggestions
+     * @throws {Error} If API call fails or response cannot be parsed
+     */
     async analyzeAndImprove(subjectLine, emailCopy, model) {
         // Determine which provider to use (respects AI_PROVIDER setting first)
         const provider = this.determineProvider(model);
@@ -484,6 +498,14 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         }
     }
 
+    /**
+     * Reviews email copy and provides feedback with scores
+     * @param {string} subjectLine - Email subject line to review
+     * @param {string} emailCopy - Email body content to review
+     * @param {string} [model] - Optional AI model to use (defaults to service provider)
+     * @returns {Promise<Object>} Review with scores and feedback
+     * @throws {Error} If API call fails or response cannot be parsed
+     */
     async reviewCopy(subjectLine, emailCopy, model) {
         // Determine which provider to use (respects AI_PROVIDER setting first)
         const provider = this.determineProvider(model);
@@ -709,6 +731,15 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         throw new Error('OpenAI integration not yet implemented. Please use Claude.');
     }
 
+    /**
+     * Generates improved versions of email copy based on review feedback
+     * @param {string} subjectLine - Original email subject line
+     * @param {string} emailCopy - Original email body content
+     * @param {Object} review - Review object containing feedback and scores
+     * @param {string} [model] - Optional AI model to use (defaults to service provider)
+     * @returns {Promise<Object>} Improved copy with changes explained
+     * @throws {Error} If API call fails or response cannot be parsed
+     */
     async improveCopy(subjectLine, emailCopy, review, model) {
         // Determine which provider to use (respects AI_PROVIDER setting first)
         const provider = this.determineProvider(model);

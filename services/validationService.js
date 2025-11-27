@@ -2,6 +2,8 @@
  * Security validation service for email copy input
  */
 
+const { MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH, MIN_SUBJECT_WORDS } = require('../config/constants');
+
 /**
  * Validate email input for security threats and format
  * @param {string} subjectLine - Email subject line
@@ -12,16 +14,16 @@ function validateEmailInput(subjectLine, copy) {
   const errors = [];
 
   // Length validation
-  if (subjectLine.length > 200) {
-    errors.push('Subject line exceeds maximum length of 200 characters');
+  if (subjectLine.length > MAX_SUBJECT_LENGTH) {
+    errors.push(`Subject line exceeds maximum length of ${MAX_SUBJECT_LENGTH} characters`);
   }
 
-  if (copy.length < 50) {
-    errors.push('Email body must be at least 50 characters');
+  if (copy.length < MIN_SUBJECT_WORDS) {
+    errors.push(`Email body must be at least ${MIN_SUBJECT_WORDS} characters`);
   }
 
-  if (copy.length > 2000) {
-    errors.push('Email body exceeds maximum length of 2000 characters');
+  if (copy.length > MAX_BODY_LENGTH) {
+    errors.push(`Email body exceeds maximum length of ${MAX_BODY_LENGTH} characters`);
   }
 
   // Prompt injection detection

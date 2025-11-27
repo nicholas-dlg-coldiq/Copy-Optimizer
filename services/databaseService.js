@@ -60,6 +60,11 @@ class DatabaseService {
         const today = new Date().toISOString().split('T')[0];
         const isNewDay = existingRequester.last_request_date !== today;
 
+        // Note: There's a potential race condition here where concurrent requests
+        // could result in incorrect counts. For production at scale, consider using
+        // a PostgreSQL RPC function with atomic increments or optimistic locking.
+        // For current usage levels, this approach is acceptable.
+
         // Update existing requester
         const { error: updateError } = await this.supabase
           .from('requesters')
@@ -128,6 +133,7 @@ class DatabaseService {
       const now = new Date().toISOString();
 
       if (existingActivity) {
+        // Note: Potential race condition on counter increments (same as above)
         // Update existing activity record
         const { error: updateError } = await this.supabase
           .from('user_activity_data')

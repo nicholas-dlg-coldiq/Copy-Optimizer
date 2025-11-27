@@ -1,9 +1,13 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
 require('dotenv').config();
 
 const reviewRouter = require('./routes/review');
+const { RATE_LIMIT, REVIEW_RATE_LIMIT, MAX_REQUEST_SIZE } = require('./config/constants');
 
 // ==============================================
 // ENVIRONMENT VALIDATION
@@ -68,15 +72,7 @@ if (validation.errors.length > 0) {
     console.error('\n❌ Environment Validation Failed:');
     validation.errors.forEach(error => console.error(`  - ${error}`));
     console.error('\nPlease check your .env file and ensure all required variables are set.');
-    console.error('See .env.example for reference.');
-    console.error('\nCurrent environment variables (sanitized):');
-    console.error(`  - NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
-    console.error(`  - AI_PROVIDER: ${process.env.AI_PROVIDER || 'not set'}`);
-    console.error(`  - PORT: ${process.env.PORT || 'not set'}`);
-    console.error(`  - ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'set' : 'not set'}`);
-    console.error(`  - OPENROUTER_API_KEY: ${process.env.OPENROUTER_API_KEY ? 'set' : 'not set'}`);
-    console.error(`  - SUPABASE_URL: ${process.env.SUPABASE_URL ? 'set' : 'not set (optional)'}`);
-    console.error(`  - SUPABASE_SERVICE_KEY: ${process.env.SUPABASE_SERVICE_KEY ? 'set' : 'not set (optional)'}\n`);
+    console.error('See .env.example for reference.\n');
     process.exit(1);
 }
 
@@ -90,9 +86,84 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0'; // Bind to 0.0.0.0 for cloud platforms like Railway
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// ==============================================
+// SECURITY & PERFORMANCE MIDDLEWARE
+// ==============================================
+
+// Security headers
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'", "https://openrouter.ai", "https://api.anthropic.com"],
+        },
+    },
+}));
+
+// CORS configuration - restrict to specific origins in production
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, curl, Postman)
+        if (!origin) return callback(null, true);
+
+        // In development, allow all origins
+        if (process.env.NODE_ENV === 'development') {
+            return callback(null, true);
+        }
+
+        // In production, check against allowed origins
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
+// Request size limits to prevent DoS attacks
+app.use(express.json({
+    limit: MAX_REQUEST_SIZE,
+    strict: true
+}));
+
+// Compression middleware for better performance
+app.use(compression());
+
+// Rate limiting for API endpoints
+const apiLimiter = rateLimit({
+    windowMs: RATE_LIMIT.WINDOW_MS,
+    max: RATE_LIMIT.MAX_REQUESTS,
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Skip rate limiting for health checks
+    skip: (req) => req.path === '/health'
+});
+
+// Apply rate limiting to all API routes
+app.use('/api', apiLimiter);
+
+// Stricter rate limiting for review endpoints (more resource intensive)
+const reviewLimiter = rateLimit({
+    windowMs: REVIEW_RATE_LIMIT.WINDOW_MS,
+    max: REVIEW_RATE_LIMIT.MAX_REQUESTS,
+    message: 'Too many review requests. Please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+app.use('/api/review', reviewLimiter);
+app.use('/api/improve', reviewLimiter);
+app.use('/api/analyze-and-improve', reviewLimiter);
+
 app.use(express.static(path.join(__dirname)));
 
 // Health check endpoint (for Railway and other cloud platforms)
@@ -140,33 +211,12 @@ app.listen(PORT, HOST, () => {
     console.log('==============================================\n');
     console.log(`🚀 Server listening on: ${HOST}:${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('');
-    console.log('AI Configuration:');
-    console.log(`  - Provider: ${process.env.AI_PROVIDER || 'anthropic'}`);
-
-    const aiProvider = process.env.AI_PROVIDER || 'anthropic';
-    if (aiProvider === 'anthropic' || aiProvider === 'claude') {
-        console.log(`  - Anthropic API Key: ${process.env.ANTHROPIC_API_KEY ? '✓ Configured' : '✗ Missing'}`);
-    }
-    if (aiProvider === 'openrouter' || process.env.OPENROUTER_API_KEY) {
-        console.log(`  - OpenRouter API Key: ${process.env.OPENROUTER_API_KEY ? '✓ Configured' : '✗ Missing'}`);
-    }
-
-    console.log('');
-    console.log('Database Configuration:');
-    console.log(`  - Supabase URL: ${process.env.SUPABASE_URL ? '✓ Configured' : '✗ Not set (optional)'}`);
-    console.log(`  - Supabase Service Key: ${process.env.SUPABASE_SERVICE_KEY ? '✓ Configured' : '✗ Not set (optional)'}`);
-
-    console.log('');
-    console.log('Logging Configuration:');
-    console.log(`  - File Logging: ${process.env.ENABLE_FILE_LOGGING !== 'false' ? '✓ Enabled' : '✗ Disabled'}`);
-    console.log(`  - Console Logs: ${process.env.ENABLE_CONSOLE_LOGS !== 'false' ? '✓ Enabled' : '✗ Disabled'}`);
-    console.log(`  - Detailed Prompts: ${process.env.LOG_DETAILED_PROMPTS !== 'false' ? '✓ Enabled' : '✗ Disabled'}`);
-
-    console.log('');
-    console.log('UI Configuration:');
-    console.log(`  - Admin Panel: ${process.env.SHOW_ADMIN_PANEL !== 'false' ? '✓ Visible' : '✗ Hidden'}`);
-
+    console.log(`🤖 AI Provider: ${process.env.AI_PROVIDER || 'anthropic'}`);
+    console.log(`🔒 Security: Rate limiting enabled`);
+    console.log(`📦 Compression: Enabled`);
+    console.log(`🗄️  Database: ${process.env.SUPABASE_URL ? 'Connected' : 'Not configured (optional)'}`);
+    console.log(`📝 File Logging: ${process.env.ENABLE_FILE_LOGGING !== 'false' ? 'Enabled' : 'Disabled'}`);
+    console.log(`📊 Admin Panel: ${process.env.SHOW_ADMIN_PANEL !== 'false' ? 'Visible' : 'Hidden'}`);
     console.log('');
     console.log('==============================================\n');
 });

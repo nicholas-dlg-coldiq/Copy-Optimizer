@@ -15,7 +15,9 @@ An AI-powered tool that analyzes and optimizes cold email copy using proven best
 ## Tech Stack
 
 - **Backend**: Node.js + Express
-- **AI**: Anthropic Claude API (Claude 3.5 Sonnet)
+- **AI**: Anthropic Claude API & OpenRouter (multi-model support)
+- **Database**: Supabase (PostgreSQL) - optional usage tracking
+- **Security**: Helmet, CORS, Rate Limiting, Input Validation
 - **Frontend**: Vanilla JavaScript, HTML, CSS
 - **Data**: Curated best practices from ColdIQ playbooks
 
@@ -49,14 +51,32 @@ An AI-powered tool that analyzes and optimizes cold email copy using proven best
 
    Or create it manually with the following content:
    ```env
-   # Required: Your Anthropic API key
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-   # Optional: AI provider (default: claude)
-   AI_PROVIDER=claude
-
-   # Optional: Server port (default: 3000)
+   # Environment Configuration
+   NODE_ENV=development
    PORT=3000
+   HOST=0.0.0.0
+
+   # AI Provider: 'anthropic' or 'openrouter'
+   AI_PROVIDER=openrouter
+
+   # API Keys
+   ANTHROPIC_API_KEY=your_anthropic_api_key_here
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+   # Database (Optional)
+   SUPABASE_URL=your_supabase_url
+   SUPABASE_SERVICE_KEY=your_supabase_key
+
+   # Logging
+   ENABLE_FILE_LOGGING=false
+   ENABLE_CONSOLE_LOGS=true
+   LOG_DETAILED_PROMPTS=false
+
+   # UI
+   SHOW_ADMIN_PANEL=true
+
+   # Security (Production)
+   ALLOWED_ORIGINS=https://yourdomain.com
    ```
 
 4. **Add your Anthropic API Key**
@@ -120,18 +140,49 @@ copy-reviewer/
 ├── routes/
 │   └── review.js            # API endpoints
 ├── services/
-│   └── aiService.js         # Claude API integration
+│   ├── aiService.js         # Claude API integration
+│   ├── databaseService.js   # Supabase integration
+│   └── validationService.js # Input validation & security
+├── middleware/
+│   └── validateEmailRequest.js  # Request validation middleware
+├── config/
+│   └── constants.js         # Application constants
 ├── data/
 │   ├── bestPractices.js     # Cold email best practices
 │   └── bestPerformingCopies.js  # Example high-performing emails
-├── public/
-│   ├── index.html           # Main UI
-│   ├── script.js            # Frontend logic
-│   └── styles.css           # Styling
-├── .env                     # Environment variables (you create this)
-├── .env.example             # Example env file
-└── package.json             # Dependencies
+├── docs/                    # Documentation
+│   ├── setup/              # Setup guides
+│   ├── development/        # Development docs
+│   └── updates/            # Changelogs & updates
+├── index.html              # Main UI
+├── script.js               # Frontend logic
+├── styles.css              # Styling
+├── .env                    # Environment variables (you create this)
+├── .env.example            # Example env file
+└── package.json            # Dependencies
 ```
+
+## Documentation
+
+All documentation has been organized into the `docs/` directory:
+
+### Setup Guides
+- [Quick Start Guide](docs/setup/QUICK_START.md) - Get up and running in 5 minutes
+- [Setup Guide](docs/setup/SETUP_GUIDE.md) - Detailed installation and configuration
+- [API & Demo Mode Setup](docs/setup/API_AND_DEMO_MODE_SETUP.md) - Configure API keys and demo mode
+
+### Development Docs
+- [Testing Guide](docs/development/TESTING.md) - How to run tests and add new ones
+- [Future RAG Guide](docs/development/FUTURE_RAG_GUIDE.md) - Plans for RAG integration
+
+### Updates & Changelogs
+Recent updates and fixes:
+- [Performance Optimizations](docs/updates/PERFORMANCE_OPTIMIZATIONS.md) - Speed improvements
+- [JSON Parsing Fix](docs/updates/JSON_PARSING_FIX.md) - Improved response parsing
+- [Settings Modal Update](docs/updates/SETTINGS_MODAL_UPDATE.md) - UI improvements
+- [Model Selector Update](docs/updates/MODEL_SELECTOR_UPDATE.md) - Multi-model support
+
+See [docs/updates/](docs/updates/) for all changelogs.
 
 ## API Endpoints
 
@@ -189,9 +240,19 @@ Generates improved copy based on review feedback.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | - | Your Anthropic API key |
-| `AI_PROVIDER` | No | `claude` | AI provider (currently only supports `claude`) |
+| `ANTHROPIC_API_KEY` | Conditional | - | Required if using Anthropic provider |
+| `OPENROUTER_API_KEY` | Conditional | - | Required if using OpenRouter provider |
+| `AI_PROVIDER` | No | `anthropic` | AI provider: `anthropic` or `openrouter` |
 | `PORT` | No | `3000` | Server port |
+| `HOST` | No | `0.0.0.0` | Server host |
+| `NODE_ENV` | No | `development` | Environment: `development` or `production` |
+| `SUPABASE_URL` | No | - | Supabase database URL (optional) |
+| `SUPABASE_SERVICE_KEY` | No | - | Supabase service key (optional) |
+| `ENABLE_FILE_LOGGING` | No | `true` | Enable file-based logging |
+| `ENABLE_CONSOLE_LOGS` | No | `true` | Enable console logging |
+| `LOG_DETAILED_PROMPTS` | No | `true` | Log full prompts and responses |
+| `SHOW_ADMIN_PANEL` | No | `true` | Show settings panel in UI |
+| `ALLOWED_ORIGINS` | No | - | Comma-separated CORS origins (production) |
 
 ### Customizing Best Practices
 
@@ -242,10 +303,25 @@ Keep "Demo Mode" enabled to test the UI and flow without consuming API credits.
 - Make sure you restart the server after changing `.env`
 - Hard refresh the browser (Ctrl+Shift+R or Cmd+Shift+R)
 
+## Security Features
+
+This application implements multiple security layers:
+
+- **Rate Limiting**: 50 requests per 15 minutes (general), 20 requests per hour (review endpoints)
+- **CORS Protection**: Configurable allowed origins for production
+- **Request Validation**: Input sanitization and malicious pattern detection
+- **Security Headers**: Helmet middleware with Content Security Policy
+- **Request Size Limits**: 100KB max payload size
+- **Compression**: Response compression for better performance
+
 ## Built With
 
 - [Express](https://expressjs.com/) - Web framework
 - [Anthropic Claude](https://www.anthropic.com/claude) - AI model
+- [OpenRouter](https://openrouter.ai/) - Multi-model AI gateway
+- [Supabase](https://supabase.com/) - Database and authentication
+- [Helmet](https://helmetjs.github.io/) - Security headers
+- [Express Rate Limit](https://github.com/express-rate-limit/express-rate-limit) - Rate limiting
 - [dotenv](https://github.com/motdotla/dotenv) - Environment variable management
 
 ## License
