@@ -191,7 +191,6 @@ function updateButtonState() {
 // Sample Email Handler
 function handleTrySample() {
     subjectLineInput.value = "I saw your post about growing your outbound team";
-    emailAddressInput.value = "alex@company.com";
     emailCopyTextarea.value = `Hey Sarah,
 
 I noticed you're hiring 3 new SDRs based on your LinkedIn post last week. Congrats on the growth!
@@ -430,7 +429,7 @@ function displayResults(result) {
             const signal = change.signal || '';
 
             changeItem.innerHTML = `
-                <div class="change-header" onclick="toggleChangeDetail(this)">
+                <div class="change-header">
                     <div class="change-header-content">
                         <div class="change-category">${escapeHtml(change.category)}${signal ? ` <span class="signal-badge">${escapeHtml(signal)}</span>` : ''}</div>
                         <div class="change-summary">${escapeHtml(summary)}</div>
@@ -463,6 +462,12 @@ function displayResults(result) {
                     ` : ''}
                 </div>
             `;
+
+            // Add click event listener to the header
+            const headerElement = changeItem.querySelector('.change-header');
+            headerElement.addEventListener('click', function() {
+                toggleChangeDetail(this);
+            });
 
             changesList.appendChild(changeItem);
         });

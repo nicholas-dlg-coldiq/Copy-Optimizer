@@ -1,6 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const bestPerformingCopies = require('../data/bestPerformingCopies');
-const { getBestPracticesContext, getComprehensivePrompt } = require('../data/bestPractices');
+const { getBestPracticesContext, getComprehensivePrompt, getLitePrompt } = require('../data/bestPractices');
 const fsPromises = require('fs').promises;
 const path = require('path');
 
@@ -15,6 +15,15 @@ class AIService {
         this.enableFileLogging = process.env.ENABLE_FILE_LOGGING !== 'false'; // Default true
         this.enableConsoleLogs = process.env.ENABLE_CONSOLE_LOGS !== 'false'; // Default true
         this.logDetailedPrompts = process.env.LOG_DETAILED_PROMPTS !== 'false'; // Default true
+
+        // Prompt mode: 'lite' for faster responses (~50% smaller prompt), 'full' for comprehensive analysis
+        this.promptMode = process.env.PROMPT_MODE || 'lite'; // Default to lite for speed
+
+        // Admin mode: when false, model is controlled by env var only
+        this.adminMode = process.env.SHOW_ADMIN_PANEL !== 'false';
+
+        // Default OpenRouter model (used when admin mode is off)
+        this.defaultOpenRouterModel = process.env.OPENROUTER_MODEL || 'anthropic/claude-3-5-sonnet';
 
         // Validate and set AI provider
         this.provider = process.env.AI_PROVIDER || 'anthropic';
@@ -62,6 +71,16 @@ class AIService {
         if (this.enableConsoleLogs) {
             console.log('AIService initialized with configuration:');
             console.log(`  - Provider: ${this.provider}`);
+            console.log(`  - Prompt Mode: ${this.promptMode}`);
+
+            // Show default models for the provider
+            if (this.provider === 'claude' || this.provider === 'anthropic') {
+                console.log(`  - Default Model: claude-sonnet-4-5-20250929`);
+            } else if (this.provider === 'openrouter') {
+                console.log(`  - Default Model: ${this.defaultOpenRouterModel}`);
+            }
+
+            console.log(`  - Admin Mode: ${this.adminMode ? 'ON (user can select model)' : 'OFF (using env var model)'}`);
             console.log(`  - File Logging: ${this.enableFileLogging ? 'Enabled' : 'Disabled'}`);
             console.log(`  - Console Logs: ${this.enableConsoleLogs ? 'Enabled' : 'Disabled'}`);
             console.log(`  - Detailed Prompts: ${this.logDetailedPrompts ? 'Enabled' : 'Disabled'}`);
@@ -84,6 +103,21 @@ class AIService {
         } catch (error) {
             // Directory might already exist, ignore
         }
+    }
+
+    // Get the effective model based on admin mode
+    // When admin mode is OFF, always use the env var model (ignores user selection)
+    // When admin mode is ON, use the requested model (or default)
+    getEffectiveModel(requestedModel) {
+        if (!this.adminMode) {
+            // Admin mode OFF: use env var model, ignore user request
+            if (this.enableConsoleLogs) {
+                console.log(`Admin mode OFF - using env var model: ${this.defaultOpenRouterModel}`);
+            }
+            return this.defaultOpenRouterModel;
+        }
+        // Admin mode ON: use requested model or default
+        return requestedModel || this.defaultOpenRouterModel;
     }
 
     // Validate API key for a given provider
@@ -131,6 +165,13 @@ class AIService {
 
         // For OpenRouter, keep the model name as-is
         return modelName;
+    }
+
+    // Check if a model is a Haiku model (for applying specific optimizations)
+    isHaikuModel(modelName) {
+        if (!modelName) return false;
+        const lowerModel = modelName.toLowerCase();
+        return lowerModel.includes('haiku') || lowerModel.includes('claude-3-haiku');
     }
 
     // Determine which provider to use based on configuration and model name
@@ -225,63 +266,148 @@ class AIService {
                 ...data,
                 timestamp: new Date().toISOString()
             };
+        } else if (type === 'combined') {
+            this.sessionData.combined = {
+                ...data,
+                timestamp: new Date().toISOString()
+            };
         }
 
         // Write detailed log file asynchronously
         const filename = `${type}_detailed.log`;
         const filepath = path.join(sessionDir, filename);
 
-        // Build log content based on LOG_DETAILED_PROMPTS setting
+        // Build enhanced log content with timing breakdown
         let logContent;
 
         if (this.logDetailedPrompts) {
+            // Compute values that were deferred to avoid blocking the API response
+            const systemPromptText = data.systemPrompt ||
+                (data.systemPromptBlocks ? data.systemPromptBlocks.map(block => block.text).join('\n\n') : 'N/A');
+            const totalPromptLength = data.totalSystemPromptLength || systemPromptText.length;
+            const inputTokens = data.inputTokens || Math.ceil((totalPromptLength + (data.userPrompt?.length || 0)) / 4);
+            const outputTokens = data.outputTokens || Math.ceil((data.response?.length || 0) / 4);
+            const qualityMetrics = data.qualityMetrics || {
+                score: data.parsedResponse?.overallScore || 'N/A',
+                completeness: data.parsedResponse?.improvedSubject && data.parsedResponse?.improvedBody ? '100%' : 'Partial'
+            };
+
+            // Calculate timing metrics
+            const now = new Date();
+            const timestampSeconds = Math.floor(now.getTime() / 1000);
+            const responseTimeSeconds = (data.responseTime / 1000).toFixed(3);
+
+            // Build timing breakdown if available
+            let timingBreakdown = '';
+            if (data.timingSteps && data.timingSteps.length > 0) {
+                timingBreakdown = '\nTIMING BREAKDOWN:\n' + '-'.repeat(80) + '\n';
+                data.timingSteps.forEach((step, index) => {
+                    const stepTime = step.duration ? `${step.duration}ms (${(step.duration / 1000).toFixed(3)}s)` : 'N/A';
+                    const stepTimestamp = step.timestamp ? new Date(step.timestamp).toISOString() : 'N/A';
+                    timingBreakdown += `${index + 1}. ${step.name.padEnd(30)} ${stepTime.padStart(20)} @ ${stepTimestamp}\n`;
+                });
+                timingBreakdown += '-'.repeat(80) + '\n';
+            }
+
             // Full detailed log with prompts and responses
             logContent = `
-================================================================================
-${type.toUpperCase()} LOG
-Generated: ${new Date().toISOString()}
-================================================================================
+${'='.repeat(80)}
+${type.toUpperCase()} REQUEST LOG - DETAILED PERFORMANCE ANALYSIS
+${'='.repeat(80)}
+Generated: ${now.toISOString()}
+Unix Timestamp: ${timestampSeconds}
+Session ID: ${this.currentSessionId || 'N/A'}
+${'='.repeat(80)}
 
-SYSTEM PROMPT:
-${'-'.repeat(80)}
-${data.systemPrompt}
-${'-'.repeat(80)}
+${'#'.repeat(80)}
+SECTION 1: INPUT FIELDS
+${'#'.repeat(80)}
 
-USER PROMPT:
+Subject Line:
 ${'-'.repeat(80)}
-${data.userPrompt}
-${'-'.repeat(80)}
-
-${data.reviewData ? `REVIEW DATA (for improve step):
-${'-'.repeat(80)}
-${JSON.stringify(data.reviewData, null, 2)}
+${data.inputFields?.subjectLine || 'N/A'}
 ${'-'.repeat(80)}
 
-` : ''}AI RESPONSE:
+Email Copy:
 ${'-'.repeat(80)}
-${data.response}
+${data.inputFields?.emailCopy || 'N/A'}
 ${'-'.repeat(80)}
 
-${data.parsedResponse ? `PARSED RESPONSE:
+Model: ${data.model || 'N/A'}
+Temperature: ${data.temperature || 'N/A'}
+Max Tokens: ${data.maxTokens || 'N/A'}
+${data.inputFields?.additionalContext ? `
+Additional Context:
 ${'-'.repeat(80)}
-${JSON.stringify(data.parsedResponse, null, 2)}
+${data.inputFields.additionalContext}
 ${'-'.repeat(80)}
 ` : ''}
-METADATA:
-${'-'.repeat(80)}
-Model: ${data.model}
-Response Time: ${data.responseTime}ms
-Stop Reason: ${data.stopReason}
-Content Length: ${data.contentLength} characters
-${'-'.repeat(80)}
+${'#'.repeat(80)}
+SECTION 2: SYSTEM PROMPT
+${'#'.repeat(80)}
+${systemPromptText}
+${'='.repeat(80)}
+
+${'#'.repeat(80)}
+SECTION 3: USER PROMPT
+${'#'.repeat(80)}
+${data.userPrompt || 'N/A'}
+${'='.repeat(80)}
+
+${data.reviewData ? `${'#'.repeat(80)}
+SECTION 4: REVIEW DATA (for improve step)
+${'#'.repeat(80)}
+${JSON.stringify(data.reviewData, null, 2)}
+${'='.repeat(80)}
+
+` : ''}${'#'.repeat(80)}
+SECTION 5: LLM RAW RESPONSE
+${'#'.repeat(80)}
+${data.response || 'N/A'}
+${'='.repeat(80)}
+
+${data.parsedResponse ? `${'#'.repeat(80)}
+SECTION 6: PARSED & VALIDATED RESPONSE
+${'#'.repeat(80)}
+${JSON.stringify(data.parsedResponse, null, 2)}
+${'='.repeat(80)}
+
+` : ''}${data.parseSteps && data.parseSteps.length > 0 ? `${'#'.repeat(80)}
+SECTION 7: PARSING STEPS & TRANSFORMATIONS
+${'#'.repeat(80)}
+${data.parseSteps.map((step, i) => `Step ${i + 1}: ${step}`).join('\n')}
+${'='.repeat(80)}
+
+` : ''}${'#'.repeat(80)}
+SECTION 8: PERFORMANCE METRICS
+${'#'.repeat(80)}
+Total Response Time: ${data.responseTime}ms (${responseTimeSeconds}s)
+Stop Reason: ${data.stopReason || 'N/A'}
+Content Length: ${data.contentLength || 0} characters
+Input Token Count (est): ${inputTokens}
+Output Token Count (est): ${outputTokens}
+${timingBreakdown}${'='.repeat(80)}
+
+${'#'.repeat(80)}
+SECTION 9: QUALITY INDICATORS
+${'#'.repeat(80)}
+Response Truncated: ${data.stopReason === 'max_tokens' ? 'YES - REVIEW MAX_TOKENS' : 'No'}
+JSON Parse Success: ${data.parsedResponse ? 'Yes' : 'No'}
+Validation Passed: ${data.validationPassed !== false ? 'Yes' : 'No'}
+Quality Score: ${qualityMetrics.score}
+Completeness: ${qualityMetrics.completeness}
+${'='.repeat(80)}
+END OF LOG
+${'='.repeat(80)}
 `;
         } else {
             // Minimal log with only metadata (no prompts/responses to reduce log size)
+            const responseTimeSeconds = (data.responseTime / 1000).toFixed(3);
             logContent = `
-================================================================================
+${'='.repeat(80)}
 ${type.toUpperCase()} LOG (Summary Only)
 Generated: ${new Date().toISOString()}
-================================================================================
+${'='.repeat(80)}
 
 ${data.parsedResponse ? `PARSED RESPONSE:
 ${'-'.repeat(80)}
@@ -291,12 +417,13 @@ ${'-'.repeat(80)}
 ` : ''}METADATA:
 ${'-'.repeat(80)}
 Model: ${data.model}
-Response Time: ${data.responseTime}ms
+Response Time: ${data.responseTime}ms (${responseTimeSeconds}s)
 Stop Reason: ${data.stopReason}
 Content Length: ${data.contentLength} characters
 ${'-'.repeat(80)}
 
 NOTE: Detailed prompts/responses disabled (set LOG_DETAILED_PROMPTS=true to enable)
+${'='.repeat(80)}
 `;
         }
 
@@ -473,24 +600,28 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
      * @throws {Error} If API call fails or response cannot be parsed
      */
     async analyzeAndImprove(subjectLine, emailCopy, model) {
+        // Apply effective model based on admin mode
+        const effectiveModel = this.getEffectiveModel(model);
+
         // Determine which provider to use (respects AI_PROVIDER setting first)
-        const provider = this.determineProvider(model);
+        const provider = this.determineProvider(effectiveModel);
 
         // Validate that the required API key exists for this provider
         this.validateApiKey(provider);
 
         // Normalize model name for the selected provider
-        const normalizedModel = this.normalizeModelName(model, provider);
+        const normalizedModel = this.normalizeModelName(effectiveModel, provider);
 
         if (this.enableConsoleLogs) {
             console.log(`Provider determination: ${provider}`);
-            console.log(`Original model: ${model}`);
+            console.log(`Requested model: ${model}`);
+            console.log(`Effective model: ${effectiveModel}`);
             console.log(`Normalized model: ${normalizedModel}`);
         }
 
         // Route to the appropriate provider implementation
         if (provider === 'openrouter') {
-            return await this.analyzeAndImproveWithOpenRouter(subjectLine, emailCopy, normalizedModel || model);
+            return await this.analyzeAndImproveWithOpenRouter(subjectLine, emailCopy, normalizedModel || effectiveModel);
         } else if (provider === 'claude' || provider === 'anthropic') {
             return await this.analyzeAndImproveWithClaude(subjectLine, emailCopy, normalizedModel || model);
         } else {
@@ -542,7 +673,8 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting Claude API Request (Review) ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: Anthropic Claude Direct');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -634,7 +766,8 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting OpenRouter API Request (Review) ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: OpenRouter');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -776,7 +909,8 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting Claude API Request (Improve) ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: Anthropic Claude Direct');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -869,7 +1003,8 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting OpenRouter API Request (Improve) ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: OpenRouter');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -966,14 +1101,26 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
     }
 
     async analyzeAndImproveWithClaude(subjectLine, emailCopy, model = 'claude-sonnet-4-5-20250929') {
-        const systemPromptBlocks = this.buildCombinedSystemPromptBlocks();
+        // Track timing for each step
+        const timingSteps = [];
+        const overallStartTime = Date.now();
+
+        // Step 1: Build prompts
+        const promptBuildStart = Date.now();
+        const systemPromptBlocks = this.buildCombinedSystemPromptBlocks(model);
         const userPrompt = this.buildCombinedUserPrompt(subjectLine, emailCopy);
+        timingSteps.push({
+            name: 'Build Prompts',
+            duration: Date.now() - promptBuildStart,
+            timestamp: Date.now()
+        });
 
         const totalSystemPromptLength = systemPromptBlocks.reduce((sum, block) => sum + block.text.length, 0);
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting Combined Claude API Request ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: Anthropic Claude Direct');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -983,10 +1130,11 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         }
 
         try {
-            const startTime = Date.now();
+            // Step 2: API Call
+            const apiCallStart = Date.now();
             const message = await this.anthropic.messages.create({
                 model: model,
-                max_tokens: 4000,
+                max_tokens: this.isHaikuModel(model) ? 2000 : 4000,
                 temperature: 0.7,
                 system: systemPromptBlocks,
                 messages: [
@@ -1000,11 +1148,16 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
                     }
                 ]
             });
-            const duration = Date.now() - startTime;
+            const apiDuration = Date.now() - apiCallStart;
+            timingSteps.push({
+                name: 'Claude API Call',
+                duration: apiDuration,
+                timestamp: Date.now()
+            });
 
             if (this.enableConsoleLogs) {
                 console.log('=== Combined Claude API Response Received ===');
-                console.log('Response time:', formatTime(duration));
+                console.log('Response time:', formatTime(apiDuration));
                 console.log('Response completed at:', new Date().toISOString());
                 console.log('Response content length:', message.content[0].text.length);
                 console.log('Stop reason:', message.stop_reason);
@@ -1015,20 +1168,65 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
                 throw new Error('Response was incomplete. The AI model hit the token limit. Please try with a shorter email or contact support.');
             }
 
+            // Step 3: Extract response text
+            const extractStart = Date.now();
             const responseText = message.content[0].text;
-            const parsedResponse = this.parseCombinedResponse(responseText);
+            timingSteps.push({
+                name: 'Extract Response Text',
+                duration: Date.now() - extractStart,
+                timestamp: Date.now()
+            });
 
-            // Log the prompt and response
+            // Step 4: Parse and validate response
+            const parseStart = Date.now();
+            const parseSteps = [];
+            parseSteps.push('Starting JSON parse of combined response');
+            const parsedResponse = this.parseCombinedResponse(responseText);
+            parseSteps.push('JSON parse successful');
+            parseSteps.push('Validating response structure');
+            timingSteps.push({
+                name: 'Parse & Validate Response',
+                duration: Date.now() - parseStart,
+                timestamp: Date.now()
+            });
+
+            const totalDuration = Date.now() - overallStartTime;
+            timingSteps.push({
+                name: 'TOTAL REQUEST TIME',
+                duration: totalDuration,
+                timestamp: Date.now()
+            });
+
+            // Estimate token counts
+            const inputTokens = Math.ceil((totalSystemPromptLength + userPrompt.length) / 4);
+            const outputTokens = Math.ceil(responseText.length / 4);
+
+            // Log the prompt and response with enhanced data
             const systemPromptText = systemPromptBlocks.map(block => block.text).join('\n\n');
             this.logPromptAndResponse('combined', {
+                inputFields: {
+                    subjectLine,
+                    emailCopy
+                },
                 systemPrompt: systemPromptText,
                 userPrompt,
                 response: responseText,
                 parsedResponse,
                 model,
-                responseTime: duration,
+                temperature: 0.7,
+                maxTokens: 4000,
+                responseTime: totalDuration,
                 stopReason: message.stop_reason,
-                contentLength: responseText.length
+                contentLength: responseText.length,
+                inputTokens,
+                outputTokens,
+                timingSteps,
+                parseSteps,
+                validationPassed: true,
+                qualityMetrics: {
+                    score: parsedResponse.overallScore || 'N/A',
+                    completeness: parsedResponse.improvedSubject && parsedResponse.improvedBody ? '100%' : 'Partial'
+                }
             });
 
             return parsedResponse;
@@ -1056,14 +1254,26 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
     }
 
     async analyzeAndImproveWithOpenRouter(subjectLine, emailCopy, model = 'anthropic/claude-sonnet-4-5:beta') {
-        const systemPromptBlocks = this.buildCombinedSystemPromptBlocks();
+        // Track timing for each step
+        const timingSteps = [];
+        const overallStartTime = Date.now();
+
+        // Step 1: Build prompts
+        const promptBuildStart = Date.now();
+        const systemPromptBlocks = this.buildCombinedSystemPromptBlocks(model);
         const userPrompt = this.buildCombinedUserPrompt(subjectLine, emailCopy);
+        timingSteps.push({
+            name: 'Build Prompts',
+            duration: Date.now() - promptBuildStart,
+            timestamp: Date.now()
+        });
 
         const totalSystemPromptLength = systemPromptBlocks.reduce((sum, block) => sum + block.text.length, 0);
 
         if (this.enableConsoleLogs) {
             console.log('=== Starting Combined OpenRouter API Request ===');
-            console.log('Model:', model);
+            console.log('Using Model:', model);
+            console.log('Provider: OpenRouter');
             console.log('Subject Line Length:', subjectLine.length);
             console.log('Email Copy Length:', emailCopy.length);
             console.log('System Prompt Length:', totalSystemPromptLength);
@@ -1072,7 +1282,8 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         }
 
         try {
-            const startTime = Date.now();
+            // Step 2: API Call (request + receive headers only)
+            const apiCallStart = Date.now();
             const response = await fetch(this.openRouterUrl, {
                 method: 'POST',
                 headers: {
@@ -1097,43 +1308,89 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
                             content: '{\n    "overallScore":'
                         }
                     ],
-                    max_tokens: 4000,
+                    max_tokens: this.isHaikuModel(model) ? 2000 : 4000,
                     temperature: 0.7
                 })
             });
-            const duration = Date.now() - startTime;
+            const apiDuration = Date.now() - apiCallStart;
+            timingSteps.push({
+                name: 'OpenRouter API Call',
+                duration: apiDuration,
+                timestamp: Date.now()
+            });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
             }
 
+            // Step 3: Download response body and parse JSON
+            // Note: response.json() streams the body from the server THEN parses it
+            // This measures network transfer + JSON parsing combined
+            const downloadParseStart = Date.now();
             const data = await response.json();
+            timingSteps.push({
+                name: 'Stream & Parse Response',
+                duration: Date.now() - downloadParseStart,
+                timestamp: Date.now()
+            });
 
             if (this.enableConsoleLogs) {
                 console.log('=== Combined OpenRouter API Response Received ===');
-                console.log('Response time:', formatTime(duration));
+                console.log('Response time:', formatTime(apiDuration));
                 console.log('Response completed at:', new Date().toISOString());
             }
 
+            // Step 4: Extract response text
+            const extractStart = Date.now();
             const responseText = data.choices[0].message.content;
+            timingSteps.push({
+                name: 'Extract Response Text',
+                duration: Date.now() - extractStart,
+                timestamp: Date.now()
+            });
+
             if (this.enableConsoleLogs) {
                 console.log('Response content length:', responseText.length);
             }
 
+            // Step 5: Parse and validate response
+            const parseStart = Date.now();
+            const parseSteps = [];
+            parseSteps.push('Starting JSON parse of combined response');
             const parsedResponse = this.parseCombinedResponse(responseText);
+            parseSteps.push('JSON parse successful');
+            parseSteps.push('Validating response structure');
+            timingSteps.push({
+                name: 'Parse & Validate Response',
+                duration: Date.now() - parseStart,
+                timestamp: Date.now()
+            });
 
-            // Log the prompt and response
-            const systemPromptText = systemPromptBlocks.map(block => block.text).join('\n\n');
+            const totalDuration = Date.now() - overallStartTime;
+            timingSteps.push({
+                name: 'TOTAL REQUEST TIME',
+                duration: totalDuration,
+                timestamp: Date.now()
+            });
+
+            // Log asynchronously - all computation moved inside to avoid blocking return
             this.logPromptAndResponse('combined', {
-                systemPrompt: systemPromptText,
+                inputFields: { subjectLine, emailCopy },
+                systemPromptBlocks, // Pass blocks, compute text inside async logger
                 userPrompt,
                 response: responseText,
                 parsedResponse,
                 model,
-                responseTime: duration,
+                temperature: 0.7,
+                maxTokens: 4000,
+                responseTime: totalDuration,
                 stopReason: data.choices[0].finish_reason || 'stop',
-                contentLength: responseText.length
+                contentLength: responseText.length,
+                totalSystemPromptLength, // Pass for token estimation inside async
+                timingSteps,
+                parseSteps,
+                validationPassed: true
             });
 
             return parsedResponse;
@@ -1154,15 +1411,43 @@ ${this.extractFurtherTips(improveData.parsedResponse)}
         }
     }
 
-    buildCombinedSystemPromptBlocks() {
-        const comprehensivePrompt = getComprehensivePrompt();
+    buildCombinedSystemPromptBlocks(modelName = null) {
+        // Use lite or full prompt based on configuration
+        const systemPrompt = this.promptMode === 'lite' ? getLitePrompt() : getComprehensivePrompt();
 
-        return [
+        // Check if this is a Haiku model
+        const isHaiku = this.isHaikuModel(modelName);
+
+        if (this.enableConsoleLogs) {
+            console.log(`Using ${this.promptMode} prompt mode (${systemPrompt.length} chars)`);
+            if (isHaiku) {
+                console.log('Detected Haiku model - applying strict output constraints');
+            }
+        }
+
+        const blocks = [
             {
                 type: "text",
-                text: comprehensivePrompt
+                text: systemPrompt
             }
         ];
+
+        // Add Haiku-specific constraints
+        if (isHaiku) {
+            blocks.push({
+                type: "text",
+                text: `
+
+CRITICAL HAIKU CONSTRAINTS:
+- Return EXACTLY 3 items in the "changes" array (not 4, not 5, not 8 - EXACTLY 3)
+- Each change description must be under 15 words
+- Each "why" field must be 1 sentence only
+- Keep furtherTips to 2-3 items maximum
+- Be extremely concise while maintaining quality`
+            });
+        }
+
+        return blocks;
     }
 
     buildCombinedUserPrompt(subjectLine, emailCopy) {
@@ -1245,47 +1530,77 @@ Provide your analysis and improved version in the JSON format specified.`;
                 console.log('=== JSON Parsing (Combined) ===');
                 console.log('Original length:', responseText.length);
                 console.log('Cleaned length:', cleanedText.length);
-                console.log('First 100 chars:', cleanedText.substring(0, 100));
+                console.log('First 200 chars:', cleanedText.substring(0, 200));
             }
 
-            // Prepend the prefill content
-            cleanedText = '{\n    "overallScore":' + cleanedText;
-
+            // Try to extract JSON - handle both prefilled and non-prefilled responses
             const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 let jsonString = jsonMatch[0];
 
+                // First, try parsing as-is (for models that include the full JSON)
+                try {
+                    const parsed = JSON.parse(jsonString);
+                    // Check if it has the expected structure
+                    if (parsed.overallScore !== undefined || parsed.improvedSubject !== undefined) {
+                        return this.validateCombinedResponse(parsed);
+                    }
+                } catch (firstError) {
+                    if (this.enableConsoleLogs) {
+                        console.log('First parse attempt failed:', firstError.message);
+                    }
+                }
+
+                // Second, try prepending the prefill (for models that continue from prefill)
+                try {
+                    // Check if response starts with a colon (model continuing after prefill key)
+                    let prefillPrepended;
+                    if (cleanedText.trim().startsWith(':')) {
+                        // Remove leading colon and whitespace, then prepend full prefill
+                        const valueOnly = cleanedText.trim().substring(1).trim();
+                        prefillPrepended = '{\n    "overallScore": ' + valueOnly;
+                    } else {
+                        // Normal prepend
+                        prefillPrepended = '{\n    "overallScore":' + cleanedText;
+                    }
+
+                    const prefillMatch = prefillPrepended.match(/\{[\s\S]*\}/);
+                    if (prefillMatch) {
+                        const parsed = JSON.parse(prefillMatch[0]);
+                        return this.validateCombinedResponse(parsed);
+                    }
+                } catch (secondError) {
+                    if (this.enableConsoleLogs) {
+                        console.log('Second parse attempt (with prefill) failed:', secondError.message);
+                    }
+                }
+
+                // Third, try cleaning the JSON and parsing again
+                if (this.enableConsoleLogs) {
+                    console.log('Attempting JSON cleanup...');
+                }
+
+                jsonString = this.fixJSONControlCharacters(jsonString);
+
                 try {
                     const parsed = JSON.parse(jsonString);
                     return this.validateCombinedResponse(parsed);
-                } catch (parseError) {
+                } catch (thirdError) {
                     if (this.enableConsoleLogs) {
-                        console.log('Initial parse failed, cleaning JSON...');
-                        console.log('Parse error:', parseError.message);
-                    }
-
-                    // Apply cleanup: fix control characters and trailing commas
-                    jsonString = this.fixJSONControlCharacters(jsonString);
-
-                    try {
-                        const parsed = JSON.parse(jsonString);
-                        return this.validateCombinedResponse(parsed);
-                    } catch (secondError) {
-                        if (this.enableConsoleLogs) {
-                            console.log('Second parse failed:', secondError.message);
-                            const errorPos = parseInt(secondError.message.match(/position (\d+)/)?.[1] || 0);
-                            if (errorPos > 0) {
-                                console.log('Context around error:', jsonString.substring(Math.max(0, errorPos - 50), Math.min(jsonString.length, errorPos + 50)));
-                            }
+                        console.log('Third parse attempt (after cleanup) failed:', thirdError.message);
+                        const errorPos = parseInt(thirdError.message.match(/position (\d+)/)?.[1] || 0);
+                        if (errorPos > 0) {
+                            console.log('Context around error:', jsonString.substring(Math.max(0, errorPos - 50), Math.min(jsonString.length, errorPos + 50)));
                         }
-                        throw secondError;
                     }
+                    throw thirdError;
                 }
             }
             throw new Error('No valid JSON found in response');
         } catch (error) {
             console.error('Failed to parse combined response:', error);
-            console.error('Response excerpt:', responseText.substring(0, 500));
+            console.error('Response excerpt (first 500 chars):', responseText.substring(0, 500));
+            console.error('Response excerpt (last 200 chars):', responseText.substring(Math.max(0, responseText.length - 200)));
             throw new Error('Failed to parse AI response');
         }
     }

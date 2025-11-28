@@ -11,6 +11,7 @@ const path = require('path');
 // Cache the file contents to avoid repeated disk reads
 let cachedBestPractices = null;
 let cachedComprehensivePrompt = null;
+let cachedLitePrompt = null;
 
 /**
  * Get comprehensive cold email review prompt (800-line version)
@@ -31,6 +32,28 @@ function getComprehensivePrompt() {
         console.error('Error reading combined-review-generate-prompt-800.txt:', error);
         // Fall back to the reduced best practices if comprehensive prompt not available
         return getBestPracticesContext();
+    }
+}
+
+/**
+ * Get lite cold email review prompt (~50% smaller for faster responses)
+ * Optimized for free tier - maintains quality while reducing tokens
+ */
+function getLitePrompt() {
+    // Return cached version if available
+    if (cachedLitePrompt) {
+        return cachedLitePrompt;
+    }
+
+    try {
+        // Read the lite prompt file
+        const filePath = path.join(__dirname, 'combined-review-generate-prompt-lite.txt');
+        cachedLitePrompt = fs.readFileSync(filePath, 'utf8');
+        return cachedLitePrompt;
+    } catch (error) {
+        console.error('Error reading combined-review-generate-prompt-lite.txt:', error);
+        // Fall back to the comprehensive prompt if lite not available
+        return getComprehensivePrompt();
     }
 }
 
@@ -88,5 +111,6 @@ function getBestPracticesContext() {
 // Export the functions
 module.exports = {
     getBestPracticesContext,
-    getComprehensivePrompt
+    getComprehensivePrompt,
+    getLitePrompt
 };

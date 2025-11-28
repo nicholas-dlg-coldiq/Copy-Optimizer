@@ -274,11 +274,9 @@ json{
             "category": "<category>",
             "issue": "<problem, max 10 words>",
             "fix": "<change, max 10 words>",
-            "why": "<data/pattern backing change>",
+            "why": "<data/pattern backing change, 1 sentence>",
             "summary": "<key improvement, max 12 words>",
-            "detail": "<2-3 sentences on impact>",
-            "signal": "<trigger type>",
-            "dataPoint": "<specific metric>"
+            "signal": "<trigger type or empty>"
         }
     ],
     "frameworkUsed": "<framework name>",
@@ -286,13 +284,8 @@ json{
     "deathFlags": ["<violations found>"],
     "powerMoves": ["<elements added>"],
     "psychologicalTriggers": ["<triggers used>"],
-    "furtherTips": [
-        "<research suggestion>",
-        "<advanced tactic>",
-        "<follow-up strategy>"
-    ],
-    "expectedImpact": "<prediction with reasoning>",
-    "alternativeApproach": "<different angle to try>"
+    "furtherTips": ["<tip 1>", "<tip 2>"],
+    "expectedImpact": "<1 sentence prediction>"
 }
 KEY PRINCIPLES TO REMEMBER
 
