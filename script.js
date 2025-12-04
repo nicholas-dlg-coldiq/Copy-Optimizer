@@ -4,6 +4,62 @@ const API_CONFIG = {
     timeout: 90000 // 90 seconds for single combined API call (faster than two sequential calls)
 };
 
+// reCAPTCHA Configuration
+let recaptchaReady = false;
+let recaptchaSiteKey = null;
+
+// Initialize reCAPTCHA v3
+async function initRecaptcha() {
+    try {
+        // Fetch site key from server config
+        const response = await fetch('/api/config');
+        const config = await response.json();
+
+        if (config.recaptchaSiteKey) {
+            recaptchaSiteKey = config.recaptchaSiteKey;
+
+            // Initialize reCAPTCHA with the site key
+            grecaptcha.ready(() => {
+                recaptchaReady = true;
+                console.log('reCAPTCHA v3 initialized');
+            });
+        }
+    } catch (error) {
+        console.warn('reCAPTCHA initialization skipped:', error.message);
+    }
+}
+
+// Get reCAPTCHA token for form submission
+async function getRecaptchaToken() {
+    if (!recaptchaReady || !recaptchaSiteKey) {
+        return null; // CAPTCHA not configured, skip
+    }
+
+    try {
+        const token = await grecaptcha.execute(recaptchaSiteKey, { action: 'submit_email' });
+        return token;
+    } catch (error) {
+        console.warn('Failed to get reCAPTCHA token:', error.message);
+        return null;
+    }
+}
+
+// Debounce utility - delays function execution until after wait ms have elapsed
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Debounced version of updateButtonState for better performance
+const debouncedUpdateButtonState = debounce(() => updateButtonState(), 100);
+
 // DOM Elements
 const subjectLineInput = document.getElementById('subjectLine');
 const emailAddressInput = document.getElementById('emailAddress');
@@ -46,15 +102,15 @@ trySampleBtn.addEventListener('click', handleTrySample);
 showOriginalBtn.addEventListener('click', toggleOriginalCopy);
 subjectLineInput.addEventListener('input', () => {
     updateSubjectCounter();
-    updateButtonState();
+    debouncedUpdateButtonState();
 });
 emailAddressInput.addEventListener('input', () => {
     validateEmailAddress();
-    updateButtonState();
+    debouncedUpdateButtonState();
 });
 emailCopyTextarea.addEventListener('input', () => {
     updateBodyCounter();
-    updateButtonState();
+    debouncedUpdateButtonState();
 });
 
 // Settings Modal Event Listeners
@@ -110,6 +166,9 @@ async function loadConfig() {
 
 // Load config on page load
 loadConfig();
+
+// Initialize reCAPTCHA on page load
+initRecaptcha();
 
 // Settings Modal Functions
 function openSettings() {
@@ -341,6 +400,9 @@ async function analyzeAndImprove(subjectLine, copyText) {
     // Get selected model (from modal)
     const selectedModel = modelSelectModal.value;
 
+    // Get reCAPTCHA token (if configured)
+    const recaptchaToken = await getRecaptchaToken();
+
     // Call backend API
     const response = await fetch(API_CONFIG.endpoint, {
         method: 'POST',
@@ -351,7 +413,8 @@ async function analyzeAndImprove(subjectLine, copyText) {
             subjectLine: subjectLine,
             copy: copyText,
             model: selectedModel,
-            email: emailAddressInput.value.trim()
+            email: emailAddressInput.value.trim(),
+            recaptchaToken: recaptchaToken
         }),
         signal: AbortSignal.timeout(API_CONFIG.timeout)
     });
@@ -535,56 +598,6 @@ function toggleChangeDetail(headerElement) {
         changeItem.classList.add('expanded');
         expandIcon.style.transform = 'rotate(180deg)';
     }
-}
-
-// Get text excerpt for a specific change category
-function getTextExcerptForChange(category, emailData) {
-    if (!emailData) return '';
-
-    const categoryLower = category.toLowerCase();
-
-    // Subject Line changes
-    if (categoryLower.includes('subject')) {
-        return emailData.subjectLine || '';
-    }
-
-    // For body changes, try to extract relevant portion
-    const body = emailData.copy || '';
-
-    // Opening Hook - first sentence/paragraph
-    if (categoryLower.includes('opening') || categoryLower.includes('hook')) {
-        const firstParagraph = body.split('\n\n')[0];
-        return firstParagraph || '';
-    }
-
-    // Call to Action - usually last paragraph or sentence with question
-    if (categoryLower.includes('cta') || categoryLower.includes('call to action')) {
-        const paragraphs = body.split('\n\n');
-        // Get last paragraph (excluding signature)
-        for (let i = paragraphs.length - 1; i >= 0; i--) {
-            if (paragraphs[i].trim() && !paragraphs[i].includes('Best,') && !paragraphs[i].includes('[Your Name]')) {
-                return paragraphs[i];
-            }
-        }
-    }
-
-    // Value Proposition - middle content
-    if (categoryLower.includes('value') || categoryLower.includes('proposition')) {
-        const paragraphs = body.split('\n\n');
-        // Return middle paragraph(s)
-        if (paragraphs.length >= 2) {
-            return paragraphs.slice(1, -1).join('\n\n');
-        }
-    }
-
-    // Length - return full body
-    if (categoryLower.includes('length')) {
-        return body;
-    }
-
-    // Default - return first meaningful paragraph
-    const paragraphs = body.split('\n\n');
-    return paragraphs[0] || '';
 }
 
 // Set Loading State

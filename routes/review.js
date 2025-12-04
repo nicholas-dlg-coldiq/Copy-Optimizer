@@ -4,6 +4,18 @@ const aiService = require('../services/aiService');
 const databaseService = require('../services/databaseService');
 const { validateEmailRequest, validateEmailAddress, validateReviewData } = require('../middleware/validateEmailRequest');
 
+// reCAPTCHA verification function (defined in server.js)
+let verifyRecaptcha = null;
+try {
+    verifyRecaptcha = require('../server').verifyRecaptcha;
+} catch (e) {
+    // Server not fully loaded yet, will be available at runtime
+}
+
+// CAPTCHA score threshold (0.0 to 1.0, lower scores = more likely bot)
+// 0.5 is recommended by Google, lower for stricter protection
+const RECAPTCHA_SCORE_THRESHOLD = 0.3;
+
 // Helper function to format time in both ms and seconds
 function formatTime(ms) {
     return `${ms}ms (${(ms / 1000).toFixed(2)}s)`;
@@ -52,6 +64,25 @@ router.post('/analyze-and-improve', validateEmailRequest, validateEmailAddress, 
     console.log('========================================\n');
 
     try {
+        // Verify reCAPTCHA token (if configured)
+        const { recaptchaToken } = req.body;
+
+        if (verifyRecaptcha && process.env.RECAPTCHA_SECRET_KEY) {
+            const captchaResult = await verifyRecaptcha(recaptchaToken);
+
+            if (!captchaResult.skipped) {
+                console.log(`reCAPTCHA score: ${captchaResult.score} (threshold: ${RECAPTCHA_SCORE_THRESHOLD})`);
+
+                if (!captchaResult.success || captchaResult.score < RECAPTCHA_SCORE_THRESHOLD) {
+                    console.warn(`⚠️ Request blocked by reCAPTCHA - Score: ${captchaResult.score}`);
+                    return res.status(403).json({
+                        error: 'Verification failed',
+                        message: 'Please try again. If this persists, refresh the page.'
+                    });
+                }
+            }
+        }
+
         const { model } = req.body;
 
         // Log model selection

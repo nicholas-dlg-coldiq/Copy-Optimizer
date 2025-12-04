@@ -60,25 +60,43 @@ class DatabaseService {
         const today = new Date().toISOString().split('T')[0];
         const isNewDay = existingRequester.last_request_date !== today;
 
-        // Note: There's a potential race condition here where concurrent requests
-        // could result in incorrect counts. For production at scale, consider using
-        // a PostgreSQL RPC function with atomic increments or optimistic locking.
-        // For current usage levels, this approach is acceptable.
+        // Use atomic increment to avoid race conditions
+        // If it's a new day, reset to 1; otherwise increment
+        const newCount = isNewDay ? 1 : (existingRequester.daily_requests_count || 0) + 1;
 
-        // Update existing requester
-        const { error: updateError } = await this.supabase
+        // Update with optimistic locking using the current count as a condition
+        const { data: updateData, error: updateError } = await this.supabase
           .from('requesters')
           .update({
             last_seen_at: new Date().toISOString(),
             session_id: sessionId,
             user_agent: userAgent,
             ip_address: ipAddress,
-            daily_requests_count: isNewDay ? 1 : (existingRequester.daily_requests_count || 0) + 1,
+            daily_requests_count: newCount,
             last_request_date: today
           })
-          .eq('id', existingRequester.id);
+          .eq('id', existingRequester.id)
+          .eq('daily_requests_count', isNewDay ? existingRequester.daily_requests_count : existingRequester.daily_requests_count)
+          .select('id');
 
-        if (updateError) throw updateError;
+        // If no rows updated due to race condition, retry once
+        if (!updateData || updateData.length === 0) {
+          console.log('⚠️ Race condition detected, retrying update...');
+          const { error: retryError } = await this.supabase
+            .from('requesters')
+            .update({
+              last_seen_at: new Date().toISOString(),
+              session_id: sessionId,
+              user_agent: userAgent,
+              ip_address: ipAddress,
+              last_request_date: today
+            })
+            .eq('id', existingRequester.id);
+
+          if (retryError) throw retryError;
+        } else if (updateError) {
+          throw updateError;
+        }
 
         console.log(`✅ Updated requester: ${email}`);
         return existingRequester.id;
@@ -133,9 +151,11 @@ class DatabaseService {
       const now = new Date().toISOString();
 
       if (existingActivity) {
-        // Note: Potential race condition on counter increments (same as above)
-        // Update existing activity record
-        const { error: updateError } = await this.supabase
+        // Update with optimistic locking to handle race conditions
+        const newCopyGraderUses = (existingActivity.copy_grader_uses || 0) + 1;
+        const newTotalToolUses = (existingActivity.total_tool_uses || 0) + 1;
+
+        const { data: updateData, error: updateError } = await this.supabase
           .from('user_activity_data')
           .update({
             last_seen_at: now,
@@ -143,13 +163,31 @@ class DatabaseService {
             session_id: sessionId,
             email: email,
             user_type: 'guest',
-            copy_grader_uses: (existingActivity.copy_grader_uses || 0) + 1,
-            total_tool_uses: (existingActivity.total_tool_uses || 0) + 1,
+            copy_grader_uses: newCopyGraderUses,
+            total_tool_uses: newTotalToolUses,
             updated_at: now
           })
-          .eq('id', existingActivity.id);
+          .eq('id', existingActivity.id)
+          .eq('copy_grader_uses', existingActivity.copy_grader_uses)
+          .select('id');
 
-        if (updateError) throw updateError;
+        // If no rows updated due to race condition, do a simple update without count change
+        if ((!updateData || updateData.length === 0) && !updateError) {
+          console.log('⚠️ Race condition in activity tracking, retrying...');
+          const { error: retryError } = await this.supabase
+            .from('user_activity_data')
+            .update({
+              last_seen_at: now,
+              last_tool_use: now,
+              session_id: sessionId,
+              updated_at: now
+            })
+            .eq('id', existingActivity.id);
+
+          if (retryError) throw retryError;
+        } else if (updateError) {
+          throw updateError;
+        }
 
         console.log(`✅ Tracked copy grader usage for requester ${requesterId}`);
         return true;

@@ -10,6 +10,47 @@ const reviewRouter = require('./routes/review');
 const { RATE_LIMIT, REVIEW_RATE_LIMIT, MAX_REQUEST_SIZE } = require('./config/constants');
 
 // ==============================================
+// RECAPTCHA VERIFICATION
+// ==============================================
+
+/**
+ * Verify reCAPTCHA v3 token with Google
+ * @param {string} token - The reCAPTCHA token from frontend
+ * @returns {Promise<{success: boolean, score: number, action: string}>}
+ */
+async function verifyRecaptcha(token) {
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+
+    if (!secretKey || !token) {
+        return { success: true, score: 1.0, action: 'none', skipped: true };
+    }
+
+    try {
+        const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(token)}`
+        });
+
+        const data = await response.json();
+
+        return {
+            success: data.success,
+            score: data.score || 0,
+            action: data.action || 'unknown',
+            skipped: false
+        };
+    } catch (error) {
+        console.error('reCAPTCHA verification error:', error.message);
+        // Fail open - don't block requests if reCAPTCHA service is down
+        return { success: true, score: 0.5, action: 'error', skipped: true };
+    }
+}
+
+// Export for use in routes
+module.exports.verifyRecaptcha = verifyRecaptcha;
+
+// ==============================================
 // ENVIRONMENT VALIDATION
 // ==============================================
 
@@ -96,9 +137,24 @@ app.use(helmet({
         directives: {
             defaultSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            scriptSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                "https://www.google.com/recaptcha/",
+                "https://www.gstatic.com/recaptcha/"
+            ],
+            frameSrc: [
+                "'self'",
+                "https://www.google.com/recaptcha/",
+                "https://recaptcha.google.com/"
+            ],
             imgSrc: ["'self'", "data:", "https:"],
-            connectSrc: ["'self'", "https://openrouter.ai", "https://api.anthropic.com"],
+            connectSrc: [
+                "'self'",
+                "https://openrouter.ai",
+                "https://api.anthropic.com",
+                "https://www.google.com/recaptcha/"
+            ],
         },
     },
 }));
@@ -137,14 +193,34 @@ app.use(express.json({
 // Compression middleware for better performance
 app.use(compression());
 
-// Rate limiting for API endpoints
+// Generate a fingerprint for rate limiting (combines IP + user agent)
+function generateFingerprint(req) {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const acceptLanguage = req.headers['accept-language'] || '';
+
+    // Create a simple hash of the fingerprint components
+    const fingerprint = `${ip}:${userAgent.substring(0, 100)}:${acceptLanguage.substring(0, 20)}`;
+
+    // Simple hash function for consistent key generation
+    let hash = 0;
+    for (let i = 0; i < fingerprint.length; i++) {
+        const char = fingerprint.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+
+    return `${ip}_${Math.abs(hash).toString(36)}`;
+}
+
+// Rate limiting for API endpoints (with fingerprinting)
 const apiLimiter = rateLimit({
     windowMs: RATE_LIMIT.WINDOW_MS,
     max: RATE_LIMIT.MAX_REQUESTS,
-    message: 'Too many requests from this IP, please try again later.',
+    message: { error: 'Too many requests', message: 'Too many requests. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
-    // Skip rate limiting for health checks
+    keyGenerator: generateFingerprint,
     skip: (req) => req.path === '/health'
 });
 
@@ -155,9 +231,10 @@ app.use('/api', apiLimiter);
 const reviewLimiter = rateLimit({
     windowMs: REVIEW_RATE_LIMIT.WINDOW_MS,
     max: REVIEW_RATE_LIMIT.MAX_REQUESTS,
-    message: 'Too many review requests. Please try again later.',
+    message: { error: 'Too many requests', message: 'Too many review requests. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: generateFingerprint
 });
 
 app.use('/api/review', reviewLimiter);
@@ -181,7 +258,8 @@ app.use('/api', reviewRouter);
 // API endpoint to get admin panel configuration
 app.get('/api/config', (req, res) => {
     res.json({
-        showAdminPanel: process.env.SHOW_ADMIN_PANEL !== 'false' // Default to true
+        showAdminPanel: process.env.SHOW_ADMIN_PANEL !== 'false', // Default to true
+        recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || null
     });
 });
 

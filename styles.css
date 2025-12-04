@@ -623,12 +623,6 @@ body {
 }
 
 .change-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.change-item {
     margin-bottom: 0.75rem;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -741,11 +735,9 @@ body {
 }
 
 .change-text.strikethrough {
-    text-decoration: line-through;
-    text-decoration-color: var(--text-muted);
     color: var(--text-secondary);
-    opacity: 0.8;
-    background: rgba(239, 68, 68, 0.03);
+    opacity: 0.75;
+    background: rgba(239, 68, 68, 0.04);
 }
 
 .before-after-row:last-child .change-text {
@@ -785,65 +777,6 @@ body {
     color: var(--text-secondary);
     font-size: 0.875rem;
     line-height: 1.6;
-}
-
-.text-comparison {
-    margin-top: 0.75rem;
-    padding: 0.875rem;
-    background: var(--surface-elevated);
-    border-radius: 6px;
-    border: 1px solid var(--border);
-}
-
-.text-comparison-label {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.75rem;
-}
-
-.text-excerpt {
-    margin-bottom: 0.75rem;
-    padding: 0.75rem;
-    border-radius: 4px;
-    border-left: 3px solid;
-}
-
-.text-excerpt:last-child {
-    margin-bottom: 0;
-}
-
-.original-excerpt {
-    background: rgba(239, 68, 68, 0.05);
-    border-left-color: var(--danger-color);
-}
-
-.improved-excerpt {
-    background: rgba(16, 185, 129, 0.05);
-    border-left-color: var(--success-color);
-}
-
-.excerpt-label {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.375rem;
-}
-
-.original-excerpt .excerpt-label {
-    color: var(--danger-color);
-}
-
-.improved-excerpt .excerpt-label {
-    color: var(--success-color);
-}
-
-.excerpt-text {
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    line-height: 1.6;
-    white-space: pre-line;
 }
 
 .next-level-tip {
@@ -965,14 +898,6 @@ body {
 
     .btn {
         width: 100%;
-    }
-
-    .score-badge {
-        padding: 1rem;
-    }
-
-    .score-number {
-        font-size: 2rem;
     }
 
     .header-section {

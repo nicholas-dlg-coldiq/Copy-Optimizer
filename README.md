@@ -253,6 +253,8 @@ Generates improved copy based on review feedback.
 | `LOG_DETAILED_PROMPTS` | No | `true` | Log full prompts and responses |
 | `SHOW_ADMIN_PANEL` | No | `true` | Show settings panel in UI |
 | `ALLOWED_ORIGINS` | No | - | Comma-separated CORS origins (production) |
+| `RECAPTCHA_SITE_KEY` | No | - | reCAPTCHA v3 site key (bot protection) |
+| `RECAPTCHA_SECRET_KEY` | No | - | reCAPTCHA v3 secret key (bot protection) |
 
 ### Customizing Best Practices
 
@@ -307,12 +309,30 @@ Keep "Demo Mode" enabled to test the UI and flow without consuming API credits.
 
 This application implements multiple security layers:
 
-- **Rate Limiting**: 50 requests per 15 minutes (general), 20 requests per hour (review endpoints)
+- **Invisible CAPTCHA (reCAPTCHA v3)**: Bot detection that scores requests silently - only challenges suspicious behavior. Most legitimate users never see a challenge.
+- **Enhanced Rate Limiting**: 50 requests per 15 minutes (general), 20 requests per hour (review endpoints). Uses IP + browser fingerprinting to prevent bypass via proxy rotation.
 - **CORS Protection**: Configurable allowed origins for production
-- **Request Validation**: Input sanitization and malicious pattern detection
+- **Request Validation**: Input sanitization and malicious pattern detection (prompt injection, SQL injection, XSS, command injection)
 - **Security Headers**: Helmet middleware with Content Security Policy
 - **Request Size Limits**: 100KB max payload size
 - **Compression**: Response compression for better performance
+- **Database Race Condition Protection**: Optimistic locking for concurrent request handling
+
+### Setting up reCAPTCHA v3
+
+To enable bot protection:
+
+1. Go to [Google reCAPTCHA Admin](https://www.google.com/recaptcha/admin)
+2. Create a new site with reCAPTCHA v3
+3. Add your domain(s) to the allowed list
+4. Copy your Site Key and Secret Key
+5. Add them to your `.env` file:
+   ```env
+   RECAPTCHA_SITE_KEY=your-site-key
+   RECAPTCHA_SECRET_KEY=your-secret-key
+   ```
+
+The system will automatically start verifying requests. Requests with low scores (likely bots) will be blocked.
 
 ## Built With
 

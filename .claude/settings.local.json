@@ -17,7 +17,9 @@
       "Bash(del .env)",
       "Bash(.env)",
       "Bash(cat:*)",
-      "Bash(\"c:\\Users\\delag\\Documents\\Nick\\Nick\\Jobs\\ColdIQ\\Projects\\Mini-tools\\Copy-reviewer\\styles.css\")"
+      "Bash(\"c:\\Users\\delag\\Documents\\Nick\\Nick\\Jobs\\ColdIQ\\Projects\\Mini-tools\\Copy-reviewer\\styles.css\")",
+      "Bash(del \"c:\\Users\\delag\\Documents\\Nick\\Nick\\Jobs\\ColdIQ\\Projects\\Mini-tools\\Copy-reviewer\\test-api.js\")",
+      "Bash(del \"c:\\Users\\delag\\Documents\\Nick\\Nick\\Jobs\\ColdIQ\\Projects\\Mini-tools\\Copy-reviewer\\debug-ai-service.js\")"
     ],
     "deny": [
       "Bash(npm start)"
